@@ -42,7 +42,8 @@
       danmu: { name: '弹幕贴图', width: 600, height: 150, enabled: true }
     },
     taskQueue: [],
-    activeTaskIndex: -1
+    activeTaskIndex: -1,
+    filterTaskApproval: 'all'
   };
 
   const templates = [
@@ -1110,6 +1111,12 @@
       if (!state.product.title && !state.product.price) return showToast('请先填写商品信息');
       addTaskToQueue();
     });
+    document.querySelectorAll('.task-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.filterTaskApproval = btn.dataset.filter;
+        renderTaskQueue();
+      });
+    });
     $('btn-clear-queue')?.addEventListener('click', () => {
       if (!confirm('清空任务队列？')) return;
       state.taskQueue = [];
@@ -1121,20 +1128,43 @@
     renderTaskQueue();
   }
 
-  function addTaskToQueue() {
-    const thumb = $('main-canvas').toDataURL('image/png');
+  function addTaskToQueue(historyItem) {
+    const thumb = historyItem?.thumb || $('main-canvas').toDataURL('image/png');
+    let product, canvas, templateRef;
+    if (historyItem) {
+      product = JSON.parse(JSON.stringify(historyItem.product));
+      canvas = JSON.parse(JSON.stringify(historyItem.canvas));
+      templateRef = historyItem.templateId ? { id: historyItem.templateId, isCustom: historyItem.templateIsCustom } : null;
+    } else {
+      product = JSON.parse(JSON.stringify(state.product));
+      canvas = JSON.parse(JSON.stringify(state.canvas));
+      templateRef = state.selectedTemplate ? { id: state.selectedTemplate.id, isCustom: state.selectedTemplate.category === 'custom' } : null;
+    }
     const task = {
       id: Date.now(),
       thumb,
-      product: JSON.parse(JSON.stringify(state.product)),
-      canvas: JSON.parse(JSON.stringify(state.canvas)),
-      template: state.selectedTemplate ? { id: state.selectedTemplate.id, isCustom: state.selectedTemplate.category === 'custom' } : null,
+      product,
+      canvas,
+      template: templateRef,
       enabledSizes: Object.entries(state.batchSizes).filter(([k, s]) => s.enabled).map(([k]) => k),
-      tweaks: JSON.parse(JSON.stringify(state.batchTweaks || {}))
+      tweaks: JSON.parse(JSON.stringify(state.batchTweaks || {})),
+      approval: historyItem?.approval || 'pending',
+      rejectReason: historyItem?.rejectReason || '',
+      historyId: historyItem?.id || null,
+      historyTitle: historyItem?.title || ''
     };
     state.taskQueue.push(task);
     renderTaskQueue();
-    showToast(`已加入任务：${task.product.title || '未命名商品'}（共 ${state.taskQueue.length} 个任务）`);
+    if (historyItem) {
+      showToast(`已加入生产队列：${historyItem.title || '未命名'}（${getApprovalLabel(task.approval)}）`);
+    } else {
+      showToast(`已加入任务：${task.product.title || '未命名商品'}（共 ${state.taskQueue.length} 个任务）`);
+    }
+  }
+
+  function getApprovalLabel(status) {
+    const map = { pending: '⏳待确认', approved: '✅已通过', rejected: '❌已打回' };
+    return map[status] || '⏳待确认';
   }
 
   function renderTaskQueue() {
@@ -1142,20 +1172,34 @@
     const actions = $('task-queue-actions');
     if (!box) return;
     box.innerHTML = '';
-    if (actions) actions.style.display = state.taskQueue.length > 0 ? 'flex' : 'none';
+    const filtered = state.taskQueue.filter(t => state.filterTaskApproval === 'all' || t.approval === state.filterTaskApproval);
+    const approvedCount = state.taskQueue.filter(t => t.approval === 'approved').length;
+    if (actions) {
+      actions.style.display = state.taskQueue.length > 0 ? 'flex' : 'none';
+      const exeBtn = $('btn-execute-queue');
+      if (exeBtn) exeBtn.innerHTML = `<span>🚀</span> 仅导出已通过（${approvedCount}个）`;
+    }
+    document.querySelectorAll('.task-filter-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.filter === state.filterTaskApproval);
+    });
     if (state.taskQueue.length === 0) {
-      box.innerHTML = '<div class="empty-state" style="padding:12px;font-size:12px;color:#999">点击「＋加入当前商品」添加生产任务</div>';
+      box.innerHTML = '<div class="empty-state" style="padding:12px;font-size:12px;color:#999">点击「＋加入当前商品」或从历史版本「📦入队」添加生产任务</div>';
       return;
     }
-    state.taskQueue.forEach((task, idx) => {
+    if (filtered.length === 0) {
+      box.innerHTML = `<div class="empty-state" style="padding:12px;font-size:12px;color:#999">「${getApprovalLabel(state.filterTaskApproval)}」状态下暂无任务</div>`;
+      return;
+    }
+    filtered.forEach(task => {
+      const idx = state.taskQueue.indexOf(task);
       const el = document.createElement('div');
       el.className = 'task-item' + (state.activeTaskIndex === idx ? ' active' : '');
       const thumb = task.thumb || (task.product.imageData || task.product.imageUrl);
       el.innerHTML = `
         <div class="task-item-thumb">${thumb ? `<img src="${thumb}" alt="">` : '📦'}</div>
         <div class="task-item-info">
-          <div class="task-item-title">#${idx + 1} ${task.product.title || '未命名商品'}</div>
-          <div class="task-item-meta">${task.enabledSizes.length} 个规格 · ${task.product.price || '无价格'}${task.template ? ' · 模板：' + (templates.find(t => t.id === task.template.id)?.name || '自定义') : ''}</div>
+          <div class="task-item-title">#${idx + 1} ${task.product.title || '未命名商品'} ${getApprovalBadge(task.approval, task.rejectReason)}</div>
+          <div class="task-item-meta">${task.enabledSizes.length} 个规格 · ${task.product.price || '无价格'}${task.template ? ' · 模板：' + (templates.find(t => t.id === task.template.id)?.name || state.customTemplates.find(t => t.id === task.template.id)?.name || '自定义') : ''}${task.historyId ? ' · 来自历史' : ''}</div>
         </div>
         <div class="task-item-actions">
           <button data-act="load" title="载入此任务">📥</button>
@@ -1217,17 +1261,33 @@
   }
 
   async function executeTaskQueue() {
-    if (state.taskQueue.length === 0) return showToast('任务队列为空');
-    showToast(`开始生成 ${state.taskQueue.length} 个任务...`);
+    const approved = state.taskQueue.filter(t => t.approval === 'approved');
+    if (approved.length === 0) return showToast('没有「已通过」状态的任务，请先审批后再导出');
+    const manifest = [];
+    showToast(`开始导出 ${approved.length} 个已通过任务...`);
     let total = 0;
     for (let i = 0; i < state.taskQueue.length; i++) {
       const task = state.taskQueue[i];
+      const seq = String(i + 1).padStart(2, '0');
+      const taskInfo = {
+        seq,
+        title: task.product.title || '未命名商品',
+        approval: task.approval,
+        rejectReason: task.rejectReason || '',
+        fromHistory: !!task.historyId,
+        historyTitle: task.historyTitle || '',
+        files: []
+      };
+      if (task.approval !== 'approved') {
+        taskInfo.skipped = true;
+        manifest.push(taskInfo);
+        continue;
+      }
       const baseName = (task.product.title || '商品').replace(/[\\/:*?"<>|]/g, '_');
       let tpl = null;
       if (task.template) {
         tpl = templates.find(t => t.id === task.template.id) || state.customTemplates.find(t => t.id === task.template.id) || null;
       }
-      const seq = String(i + 1).padStart(2, '0');
       for (let j = 0; j < task.enabledSizes.length; j++) {
         const type = task.enabledSizes[j];
         const cfg = state.batchSizes[type];
@@ -1247,12 +1307,62 @@
         const dataUrl = canvas.toDataURL('image/png');
         const fname = `${baseName}_${cfg.name}_${seq}_${cfg.width}x${cfg.height}.png`;
         downloadDataUrl(dataUrl, fname);
+        taskInfo.files.push({ name: fname, size: cfg.width + '×' + cfg.height });
         total++;
         await new Promise(r => setTimeout(r, 300));
       }
+      manifest.push(taskInfo);
     }
     addToHistory();
-    showToast(`完成！共生成并下载 ${total} 张图片`);
+    showDeliveryManifest(manifest, total);
+  }
+
+  function showDeliveryManifest(manifest, total) {
+    const approvedCount = manifest.filter(m => !m.skipped).length;
+    const skippedCount = manifest.filter(m => m.skipped).length;
+    let rows = '';
+    manifest.forEach(m => {
+      const badge = getApprovalBadge(m.approval, m.rejectReason);
+      const fileList = m.files && m.files.length
+        ? m.files.map(f => `<div style="font-size:11px;padding:2px 0;color:#333;font-family:monospace">📄 ${f.name} <span style="color:#999">(${f.size})</span></div>`).join('')
+        : '<div style="font-size:11px;color:#999">未生成文件（未通过审批）</div>';
+      rows += `
+        <div style="padding:10px;background:#f5f6fa;border-radius:8px;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:500;color:#333;margin-bottom:4px">
+            #${m.seq} ${m.title} ${badge}
+          </div>
+          ${m.rejectReason ? `<div class="approval-reject-reason" style="margin-bottom:4px">打回原因：${m.rejectReason}</div>` : ''}
+          ${m.fromHistory && m.historyTitle ? `<div style="font-size:11px;color:#999;margin-bottom:4px">来源历史版本：${m.historyTitle}</div>` : ''}
+          ${fileList}
+        </div>
+      `;
+    });
+    showModal(`生产交付清单（共 ${total} 张）`, `
+      <div style="margin-bottom:12px">
+        <div class="pack-info-row">
+          <span class="pack-info-label">已通过任务</span>
+          <span class="pack-info-value">${approvedCount} 个</span>
+        </div>
+        <div class="pack-info-row">
+          <span class="pack-info-label">跳过（未通过）</span>
+          <span class="pack-info-value">${skippedCount} 个</span>
+        </div>
+        <div class="pack-info-row">
+          <span class="pack-info-label">生成图片总数</span>
+          <span class="pack-info-value">${total} 张</span>
+        </div>
+      </div>
+      <div style="max-height:280px;overflow-y:auto">
+        ${rows}
+      </div>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn btn-primary" data-confirm>确定</button>
+      </div>
+    `, null, true);
+    setTimeout(() => {
+      const c = $('modal-body').querySelector('[data-confirm]');
+      if (c) c.addEventListener('click', () => $('modal-overlay').style.display = 'none');
+    }, 50);
   }
 
   function renderBatchSizeGrid() {
@@ -1463,17 +1573,17 @@
     });
 
     $('btn-export-pack')?.addEventListener('click', exportTeamPack);
-    $('btn-import-pack')?.addEventListener('click', () => {
+    $('btn-import-pack')?.addEventListener('click', async () => {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.json,application/json';
-      input.onchange = (e) => {
+      input.onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = (ev) => {
+        reader.onload = async (ev) => {
           try {
-            importTeamPack(JSON.parse(ev.target.result));
+            await importTeamPack(JSON.parse(ev.target.result));
           } catch (err) { showToast('导入失败：文件格式错误'); }
         };
         reader.readAsText(file);
@@ -1510,7 +1620,7 @@
     showToast('素材包已导出：' + name);
   }
 
-  function renderPackPreview(pack) {
+  async function renderPackPreview(pack) {
     let html = '';
     if (pack.currentConfig) {
       const { product, canvas, template } = pack.currentConfig;
@@ -1521,19 +1631,29 @@
       if (template) {
         tplObj = templates.find(t => t.id === template.id) || pack.customTemplates?.find(t => t.id === template.id) || null;
       }
-      drawDesign(ctx, 800, 800, { product, canvas, template: tplObj });
+      await new Promise(resolve => {
+        drawDesign(ctx, 800, 800, { product, canvas, template: tplObj, onComplete: resolve });
+      });
       const thumb = tmpCanvas.toDataURL('image/png');
       html += `
         <div>
-          <h4>🖼️ 当前画布预览</h4>
+          <h4>🖼️ 当前画布预览（与导入后主画布完全一致）</h4>
           <div class="pack-preview-canvas"><img src="${thumb}" alt=""></div>
           <div class="pack-info-row" style="margin-top:8px">
             <span class="pack-info-label">标题</span>
             <span class="pack-info-value">${product?.title || '(空)'}</span>
           </div>
           <div class="pack-info-row">
+            <span class="pack-info-label">价格</span>
+            <span class="pack-info-value">${product?.price || '-'}</span>
+          </div>
+          <div class="pack-info-row">
             <span class="pack-info-label">尺寸</span>
             <span class="pack-info-value">${canvas?.width || 800}×${canvas?.height || 800}</span>
+          </div>
+          <div class="pack-info-row">
+            <span class="pack-info-label">贴纸</span>
+            <span class="pack-info-value">${(canvas?.stickers || []).join(' ') || '(无)'}</span>
           </div>
         </div>
       `;
@@ -1557,7 +1677,7 @@
         <h4>📋 自定义模板（${pack.customTemplates.length} 个）</h4>
         <div class="pack-preview-grid">
           ${pack.customTemplates.slice(0, 8).map(tpl => `
-            <div class="pack-preview-item">
+            <div class="pack-preview-item" title="${tpl.name}">
               <div class="pack-preview-tpl" style="background:${tpl.bgColor || 'linear-gradient(135deg,#667eea,#764ba2)'}">${tpl.icon || '📋'}</div>
               <span>${(tpl.name || '模板').slice(0, 6)}</span>
             </div>
@@ -1577,21 +1697,24 @@
     if (pack.products?.length) {
       html += `<div>
         <h4>💳 商品卡片（${pack.products.length} 个）</h4>
-        <div class="pack-preview-grid">
-          ${pack.products.slice(0, 8).map(p => `
-            <div class="pack-preview-item" title="${p.cardName || p.title}">
-              <div class="pack-preview-prod">${p.imageData || p.imageUrl ? `<img src="${p.imageData || p.imageUrl}" alt="">` : '📦'}</div>
-              <span>${(p.cardName || p.title || '商品').slice(0, 6)}</span>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${pack.products.slice(0, 6).map(p => `
+            <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#f5f6fa;border-radius:8px">
+              <div class="pack-preview-prod" style="width:48px;height:48px;flex-shrink:0">${p.imageData || p.imageUrl ? `<img src="${p.imageData || p.imageUrl}" alt="">` : '📦'}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:500;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.cardName || p.title || '未命名商品'}</div>
+                <div style="font-size:11px;color:#999">${p.price || '无价格'} · ${(p.tags || []).join(' ') || '无标签'}</div>
+              </div>
             </div>
           `).join('')}
-          ${pack.products.length > 8 ? `<div class="pack-preview-item">+${pack.products.length - 8}</div>` : ''}
+          ${pack.products.length > 6 ? `<div style="font-size:11px;color:#999;text-align:center">还有 ${pack.products.length - 6} 张商品卡片...</div>` : ''}
         </div>
       </div>`;
     }
     return html;
   }
 
-  function importTeamPack(pack) {
+  async function importTeamPack(pack) {
     if (!pack || pack.type !== 'team-pack') return showToast('文件不是有效的团队素材包');
 
     const hasBrand = (pack.brandColors || []).length > 0;
@@ -1600,7 +1723,14 @@
     const hasProd = (pack.products || []).length > 0;
     const hasCanvas = !!pack.currentConfig;
 
-    const previewHtml = renderPackPreview(pack);
+    showModal(`导入项目包：${pack.name}`, `
+      <div style="text-align:center;padding:40px 20px;color:#667eea;font-size:14px">
+        <div style="font-size:32px;margin-bottom:10px">⏳</div>
+        正在渲染预览...
+      </div>
+    `, null, true);
+
+    const previewHtml = await renderPackPreview(pack);
 
     showModal(`导入项目包：${pack.name}`, `
       <div class="pack-import-section">
@@ -1735,8 +1865,9 @@
   }
 
   async function serializeShareConfig() {
+    const isCustom = state.selectedTemplate?.category === 'custom';
     const payload = {
-      v: 2,
+      v: 3,
       product: {
         title: state.product.title,
         price: state.product.price,
@@ -1746,7 +1877,11 @@
       },
       canvas: { ...state.canvas },
       template: state.selectedTemplate
-        ? { id: state.selectedTemplate.id, isCustom: state.selectedTemplate.category === 'custom' }
+        ? {
+            id: state.selectedTemplate.id,
+            isCustom,
+            data: isCustom ? { ...state.selectedTemplate } : null
+          }
         : null,
       brandColors: [...state.brandColors],
       stickers: [...state.canvas.stickers]
@@ -1792,6 +1927,10 @@
     if (payload.template) {
       let tpl = templates.find(t => t.id === payload.template.id);
       if (!tpl) tpl = state.customTemplates.find(t => t.id === payload.template.id);
+      if (!tpl && payload.template.isCustom && payload.template.data) {
+        tpl = { ...payload.template.data, category: 'custom' };
+        state.customTemplates.push(tpl);
+      }
       if (tpl) state.selectedTemplate = tpl;
     }
     if (payload.brandColors && payload.brandColors.length) {
@@ -1807,6 +1946,7 @@
     syncCanvasControls();
     syncStickerUI();
     renderBrandColors();
+    renderFavoriteTemplates();
     renderCanvas();
   }
 
@@ -1912,6 +2052,7 @@
             <button data-act="approve" title="标记为已通过">✅</button>
             <button data-act="pending" title="标记为待确认">⏳</button>
             <button data-act="reject" title="打回并填写原因">❌</button>
+            <button data-act="queue" title="加入生产队列">📦</button>
             <button data-act="restore" title="恢复版本">↩️</button>
             <button data-act="duplicate" title="复制继续编辑">📋</button>
             <button data-act="fav" title="存为常用模板">⭐</button>
@@ -2024,6 +2165,10 @@
           const c = $('modal-body').querySelector('[data-close]');
           if (c) c.addEventListener('click', () => $('modal-overlay').style.display = 'none');
         }, 50);
+      });
+      el.querySelector('[data-act="queue"]').addEventListener('click', e => {
+        e.stopPropagation();
+        addTaskToQueue(item);
       });
       el.querySelector('[data-act="del"]').addEventListener('click', e => {
         e.stopPropagation();

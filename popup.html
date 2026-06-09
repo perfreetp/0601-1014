@@ -335,13 +335,20 @@
               <h3>📋 生产任务队列</h3>
               <button class="btn btn-secondary btn-xs" id="btn-add-task">＋加入当前商品</button>
             </div>
+            <div class="task-filter-bar">
+              <button class="task-filter-btn active" data-filter="all">全部</button>
+              <button class="task-filter-btn" data-filter="pending">⏳ 待确认</button>
+              <button class="task-filter-btn" data-filter="approved">✅ 已通过</button>
+              <button class="task-filter-btn" data-filter="rejected">❌ 已打回</button>
+            </div>
             <div class="task-queue-list" id="task-queue-list"></div>
             <div class="task-queue-actions" id="task-queue-actions" style="display:none">
               <button class="btn btn-secondary btn-sm" id="btn-clear-queue">清空队列</button>
               <button class="btn btn-success btn-sm" id="btn-execute-queue">
-                <span>🚀</span> 批量导出全部任务
+                <span>🚀</span> 仅导出已通过
               </button>
             </div>
+            <small class="hint" style="color:#999;margin-top:6px;display:block">💡 只导出「已通过」版本，避免误发打回稿到直播间</small>
           </div>
 
           <div class="batch-actions">

@@ -1884,6 +1884,34 @@ body {
   margin-top: 12px;
 }
 
+.task-filter-bar {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 4px 0;
+  flex-wrap: wrap;
+}
+
+.task-filter-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  border: none;
+  background: #f5f6fa;
+  color: #666;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.task-filter-btn:hover {
+  background: #e8e9f0;
+}
+
+.task-filter-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
 .task-queue-list {
   display: flex;
   flex-direction: column;
