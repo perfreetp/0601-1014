@@ -31,7 +31,16 @@
     batchImages: {},
     candidateImages: [],
     candidatePrices: [],
-    selectedHistoryIds: []
+    candidateTitles: [],
+    selectedHistoryIds: [],
+    batchTweaks: {},
+    activeBatchType: null,
+    batchSizes: {
+      cover: { name: '直播封面', width: 800, height: 800, enabled: true },
+      corner: { name: '直播间角标', width: 200, height: 200, enabled: true },
+      banner: { name: '横幅海报', width: 1920, height: 1080, enabled: true },
+      danmu: { name: '弹幕贴图', width: 600, height: 150, enabled: true }
+    }
   };
 
   const templates = [
@@ -100,10 +109,12 @@
     });
   }
 
-  function showModal(title, html, onConfirm) {
+  function showModal(title, html, onConfirm, wide) {
     $('modal-title').textContent = title;
     $('modal-body').innerHTML = html;
     $('modal-overlay').style.display = 'flex';
+    const modalEl = $('modal');
+    if (wide) modalEl.classList.add('modal-wide'); else modalEl.classList.remove('modal-wide');
     const closeBtn = $('modal-close');
     const close = () => { $('modal-overlay').style.display = 'none'; closeBtn.removeEventListener('click', close); };
     closeBtn.addEventListener('click', close);
@@ -121,6 +132,10 @@
     const product = opts.product || state.product;
     const canvas = opts.canvas || state.canvas;
     const tpl = opts.template || state.selectedTemplate;
+    const tweaks = opts.tweaks || {};
+    const titleY = (tweaks.titleY != null ? tweaks.titleY : 78) / 100;
+    const priceSize = (tweaks.priceSize != null ? tweaks.priceSize : 10) / 100;
+    const priceY = (tweaks.priceY != null ? tweaks.priceY : 68) / 100;
 
     ctx.clearRect(0, 0, w, h);
 
@@ -168,22 +183,22 @@
       ctx.fillStyle = canvas.textColor;
       ctx.textAlign = 'center';
 
-      if (product.price) {
-        ctx.font = `bold ${Math.floor(w * 0.1)}px ${canvas.fontFamily}`;
-        ctx.fillStyle = canvas.textColor;
-        ctx.fillText(product.price, w / 2, h * 0.68);
-      }
-
       if (product.originalPrice) {
         ctx.font = `${Math.floor(w * 0.035)}px ${canvas.fontFamily}`;
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.fillText(product.originalPrice, w / 2, h * 0.58);
+        ctx.fillText(product.originalPrice, w / 2, h * (priceY - 0.1));
+      }
+
+      if (product.price) {
+        ctx.font = `bold ${Math.floor(w * priceSize)}px ${canvas.fontFamily}`;
+        ctx.fillStyle = canvas.textColor;
+        ctx.fillText(product.price, w / 2, h * priceY);
       }
 
       if (product.title) {
         ctx.font = `bold ${Math.floor(w * 0.05)}px ${canvas.fontFamily}`;
         ctx.fillStyle = canvas.textColor;
-        wrapText(ctx, product.title, w / 2, h * 0.78, w * 0.85, w * 0.06);
+        wrapText(ctx, product.title, w / 2, h * titleY, w * 0.85, w * 0.06);
       }
 
       if (canvas.stickers && canvas.stickers.length > 0) {
@@ -241,6 +256,7 @@
           state.product.price = info.price || '';
           state.product.originalPrice = info.originalPrice || '';
           state.product.imageUrl = info.imageUrl || '';
+          state.candidateTitles = info.allTitles || [];
           state.candidateImages = info.allImages || [];
           state.candidatePrices = info.allPrices || [];
           if (info.imageUrl) {
@@ -254,7 +270,7 @@
             renderCandidates();
           }
           updateProductForm();
-          showToast(`抓取成功：${state.candidateImages.length}张图，${state.candidatePrices.length}个价格`);
+          showToast(`抓取成功：${state.candidateTitles.length}个标题，${state.candidateImages.length}张图，${state.candidatePrices.length}个价格`);
         } else {
           showToast('未找到商品信息，请手动输入');
         }
@@ -262,6 +278,11 @@
         showToast('抓取失败：' + e.message);
       }
     });
+
+    const cropBtn = $('btn-crop-image');
+    if (cropBtn) cropBtn.addEventListener('click', showCropModal);
+    const saveCardBtn = $('btn-save-product-card');
+    if (saveCardBtn) saveCardBtn.addEventListener('click', saveProductCard);
 
     $('btn-manual').addEventListener('click', () => {
       state.product.title = $('product-title').value;
@@ -406,49 +427,198 @@
 
   function renderCandidates() {
     const sec = $('candidate-section');
-    if (!state.candidateImages.length && !state.candidatePrices.length) {
+    const hasAny = state.candidateTitles.length || state.candidateImages.length || state.candidatePrices.length;
+    if (!hasAny) {
       sec.style.display = 'none';
       return;
     }
     sec.style.display = 'flex';
 
+    const titleBox = $('candidate-titles');
+    if (titleBox) {
+      titleBox.innerHTML = '';
+      if (state.candidateTitles.length === 0) {
+        titleBox.innerHTML = '<div class="empty-state" style="padding:6px;font-size:11px;color:#999">暂无候选标题</div>';
+      } else {
+        state.candidateTitles.forEach(t => {
+          const div = document.createElement('div');
+          div.className = 'candidate-title-item' + (t === state.product.title ? ' selected' : '');
+          div.textContent = t;
+          div.title = t;
+          div.addEventListener('click', () => {
+            state.product.title = t;
+            $('product-title').value = t;
+            renderCanvas();
+            renderCandidates();
+          });
+          titleBox.appendChild(div);
+        });
+      }
+    }
+
+    const cropBtn = $('btn-crop-image');
+    if (cropBtn) cropBtn.style.display = (state.product.imageData || state.product.imageUrl) ? 'inline-block' : 'none';
+
     const imgBox = $('candidate-images');
     imgBox.innerHTML = '';
-    state.candidateImages.forEach((url, i) => {
-      const div = document.createElement('div');
-      div.className = 'candidate-img-thumb' + (url === state.product.imageUrl || url === state.product.imageData ? ' selected' : '');
-      div.innerHTML = `<img src="${url}" alt="">`;
-      div.addEventListener('click', () => {
-        state.product.imageUrl = url;
-        state.product.imageData = url;
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          $('image-preview').innerHTML = '<img src="' + url + '" alt="商品图">';
-          $('product-image-url').value = url;
-          renderCanvas();
-          renderCandidates();
-        };
-        img.onerror = () => renderCandidates();
-        img.src = url;
+    if (state.candidateImages.length === 0) {
+      imgBox.innerHTML = '<div class="empty-state" style="padding:6px;font-size:11px;color:#999">暂无候选图片</div>';
+    } else {
+      state.candidateImages.forEach((url, i) => {
+        const div = document.createElement('div');
+        div.className = 'candidate-img-thumb' + (url === state.product.imageUrl || url === state.product.imageData ? ' selected' : '');
+        div.innerHTML = `<img src="${url}" alt="">`;
+        div.addEventListener('click', () => {
+          state.product.imageUrl = url;
+          state.product.imageData = url;
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            $('image-preview').innerHTML = '<img src="' + url + '" alt="商品图">';
+            $('product-image-url').value = url;
+            renderCanvas();
+            renderCandidates();
+          };
+          img.onerror = () => renderCandidates();
+          img.src = url;
+        });
+        imgBox.appendChild(div);
       });
-      imgBox.appendChild(div);
-    });
+    }
 
     const priceBox = $('candidate-prices');
     priceBox.innerHTML = '';
-    state.candidatePrices.forEach(p => {
-      const span = document.createElement('span');
-      span.className = 'candidate-price-tag' + (p === state.product.price ? ' selected' : '');
-      span.textContent = p;
-      span.addEventListener('click', () => {
-        state.product.price = p;
-        $('product-price').value = p;
-        renderCanvas();
-        renderCandidates();
+    if (state.candidatePrices.length === 0) {
+      priceBox.innerHTML = '<div class="empty-state" style="padding:6px;font-size:11px;color:#999">暂无候选价格</div>';
+    } else {
+      state.candidatePrices.forEach(p => {
+        const span = document.createElement('span');
+        span.className = 'candidate-price-tag' + (p === state.product.price ? ' selected' : '');
+        span.textContent = p;
+        span.addEventListener('click', () => {
+          state.product.price = p;
+          $('product-price').value = p;
+          renderCanvas();
+          renderCandidates();
+        });
+        priceBox.appendChild(span);
       });
-      priceBox.appendChild(span);
+    }
+  }
+
+  function showCropModal() {
+    const src = state.product.imageData || state.product.imageUrl;
+    if (!src) return showToast('请先选择商品图');
+    showModal('裁剪主图', `
+      <canvas id="crop-canvas" class="crop-modal-canvas"></canvas>
+      <div class="crop-controls">
+        <div class="crop-control-row">
+          <label>缩放</label>
+          <input type="range" id="crop-scale" min="50" max="200" value="100">
+          <span id="crop-scale-val">100%</span>
+        </div>
+        <div class="crop-control-row">
+          <label>偏移X</label>
+          <input type="range" id="crop-x" min="-100" max="100" value="0">
+          <span id="crop-x-val">0</span>
+        </div>
+        <div class="crop-control-row">
+          <label>偏移Y</label>
+          <input type="range" id="crop-y" min="-100" max="100" value="0">
+          <span id="crop-y-val">0</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-close>取消</button>
+        <button class="btn btn-primary" data-crop-confirm>确认裁剪</button>
+      </div>
+    `, null, true);
+    setTimeout(() => {
+      const canvas = $('crop-canvas');
+      const out = document.createElement('canvas');
+      out.width = 600; out.height = 600;
+      canvas.width = 600; canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+      const octx = out.getContext('2d');
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const params = { scale: 1, ox: 0, oy: 0 };
+      function redraw() {
+        ctx.clearRect(0, 0, 600, 600);
+        octx.clearRect(0, 0, 600, 600);
+        const s = params.scale;
+        const iw = 600 * s, ih = 600 * s;
+        const ix = (600 - iw) / 2 + params.ox;
+        const iy = (600 - ih) / 2 + params.oy;
+        ctx.drawImage(img, ix, iy, iw, ih);
+        octx.drawImage(img, ix, iy, iw, ih);
+        ctx.strokeStyle = 'rgba(102,126,234,0.8)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(4, 4, 592, 592);
+        ctx.setLineDash([]);
+      }
+      img.onload = () => { redraw(); };
+      img.src = src;
+      ['crop-scale','crop-x','crop-y'].forEach(id => {
+        const el = $(id);
+        const v = $(id + '-val');
+        el.addEventListener('input', () => {
+          if (id === 'crop-scale') { params.scale = el.value / 100; v.textContent = el.value + '%'; }
+          if (id === 'crop-x') { params.ox = parseInt(el.value); v.textContent = el.value; }
+          if (id === 'crop-y') { params.oy = parseInt(el.value); v.textContent = el.value; }
+          redraw();
+        });
+      });
+      const close = $('modal-body').querySelector('[data-close]');
+      if (close) close.addEventListener('click', () => $('modal-overlay').style.display = 'none');
+      const confirmBtn = $('modal-body').querySelector('[data-crop-confirm]');
+      if (confirmBtn) confirmBtn.addEventListener('click', () => {
+        const dataUrl = out.toDataURL('image/png');
+        state.product.imageData = dataUrl;
+        state.product.imageUrl = '';
+        $('image-preview').innerHTML = '<img src="' + dataUrl + '" alt="商品图">';
+        $('modal-overlay').style.display = 'none';
+        renderCanvas();
+        showToast('主图已裁剪');
+      });
+    }, 80);
+  }
+
+  function saveProductCard() {
+    if (!state.product.title && !state.product.price) return showToast('请先填写商品标题或价格');
+    showModal('保存商品卡片', `
+      <input type="text" class="input-rename" id="card-name-input" placeholder="卡片名称" value="${state.product.title || '商品卡片'}">
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-close>取消</button>
+        <button class="btn btn-primary" data-confirm>保存</button>
+      </div>
+    `, () => {
+      const name = $('card-name-input').value.trim() || state.product.title || '商品卡片';
+      const item = {
+        id: Date.now(),
+        cardName: name,
+        time: new Date().toLocaleString('zh-CN'),
+        title: state.product.title || '',
+        price: state.product.price || '',
+        originalPrice: state.product.originalPrice || '',
+        imageUrl: state.product.imageUrl || '',
+        imageData: state.product.imageData || null,
+        tags: [...(state.product.tags || [])],
+        isCard: true
+      };
+      state.recentProducts = state.recentProducts.filter(r => r.id !== item.id && !(r.title === item.title && r.isCard));
+      state.recentProducts.unshift(item);
+      if (state.recentProducts.length > 30) state.recentProducts = state.recentProducts.slice(0, 30);
+      saveAllState();
+      renderRecentProducts();
+      showToast('商品卡片已保存');
     });
+    setTimeout(() => {
+      const inp = $('card-name-input'); if (inp) inp.focus();
+      const c = $('modal-body').querySelector('[data-close]');
+      if (c) c.addEventListener('click', () => $('modal-overlay').style.display = 'none');
+    }, 50);
   }
 
   function loadImageFromUrl(url) {
@@ -501,23 +671,27 @@
     if (!box) return;
     box.innerHTML = '';
     if (state.recentProducts.length === 0) {
-      box.innerHTML = '<div class="empty-state" style="padding:10px">暂无最近商品</div>';
+      box.innerHTML = '<div class="empty-state" style="padding:10px">暂无商品卡片</div>';
       return;
     }
-    state.recentProducts.forEach(item => {
+    state.recentProducts.forEach((item, idx) => {
       const div = document.createElement('div');
       div.className = 'recent-product-item';
       const thumb = item.imageData || item.imageUrl
         ? `<img class="recent-product-thumb" src="${item.imageData || item.imageUrl}" alt="">`
         : '<div class="recent-product-thumb">📦</div>';
+      const tag = item.isCard ? '<span class="product-card-tag">卡片</span>' : '';
+      const displayTitle = (item.cardName || item.title || '未命名商品').slice(0, 18);
       div.innerHTML = `
         ${thumb}
-        <div class="recent-product-info">
-          <div class="recent-product-title">${item.title}</div>
+        <div class="recent-product-info" style="flex:1;min-width:0">
+          <div class="recent-product-title">${displayTitle}${tag}</div>
           <div class="recent-product-meta">${item.price || '-'} · ${item.time}</div>
         </div>
+        <button class="recent-product-del" data-del="${item.id}" title="删除" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:14px;padding:2px 6px;border-radius:4px">×</button>
       `;
-      div.addEventListener('click', () => {
+      div.addEventListener('click', (e) => {
+        if (e.target.dataset.del) return;
         state.product = {
           title: item.title,
           price: item.price,
@@ -528,7 +702,14 @@
         };
         updateProductForm();
         renderCanvas();
-        showToast('已载入：' + item.title);
+        showToast('已载入：' + (item.cardName || item.title));
+      });
+      const delBtn = div.querySelector('[data-del]');
+      if (delBtn) delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.recentProducts.splice(idx, 1);
+        saveAllState();
+        renderRecentProducts();
       });
       box.appendChild(div);
     });
@@ -862,36 +1043,138 @@
   }
 
   function initBatchPanel() {
-    $('btn-generate-all').addEventListener('click', () => {
-      renderBatchPreviews(true);
-      addToHistory();
-      showToast('批量生成完成！');
+    renderBatchSizeGrid();
+    updateExportNamePreview();
+
+    $('btn-select-all-sizes').addEventListener('click', () => {
+      const allOn = Object.values(state.batchSizes).every(s => s.enabled);
+      Object.keys(state.batchSizes).forEach(k => state.batchSizes[k].enabled = !allOn);
+      renderBatchSizeGrid();
+      updateExportNamePreview();
+      renderBatchPreviews();
     });
-    document.querySelectorAll('.batch-checkbox').forEach(cb => {
-      cb.addEventListener('change', renderBatchPreviews);
+
+    ['tweak-title-y', 'tweak-price-size', 'tweak-price-y'].forEach(id => {
+      const el = $(id);
+      const v = $(id + '-val');
+      if (!el) return;
+      el.addEventListener('input', () => {
+        v.textContent = id === 'tweak-price-size' || id === 'tweak-title-y' || id === 'tweak-price-y'
+          ? (id === 'tweak-price-size' ? el.value + '%' : el.value + '%')
+          : el.value;
+      });
+    });
+
+    $('btn-apply-tweak')?.addEventListener('click', () => {
+      if (!state.activeBatchType) return showToast('请先点击下方预览图选择要微调的规格');
+      state.batchTweaks[state.activeBatchType] = {
+        titleY: parseInt($('tweak-title-y').value),
+        priceSize: parseInt($('tweak-price-size').value),
+        priceY: parseInt($('tweak-price-y').value)
+      };
+      renderBatchPreviews();
+      showToast('已应用到：' + state.batchSizes[state.activeBatchType].name);
+    });
+
+    $('btn-reset-tweak')?.addEventListener('click', () => {
+      if (state.activeBatchType) delete state.batchTweaks[state.activeBatchType];
+      $('tweak-title-y').value = 78; $('tweak-title-y-val').textContent = '78%';
+      $('tweak-price-size').value = 10; $('tweak-price-size-val').textContent = '10%';
+      $('tweak-price-y').value = 68; $('tweak-price-y-val').textContent = '68%';
+      renderBatchPreviews();
+      showToast('已重置当前规格微调');
+    });
+
+    $('export-name-prefix')?.addEventListener('input', updateExportNamePreview);
+
+    $('btn-generate-all').addEventListener('click', () => {
+      const enabled = Object.entries(state.batchSizes).filter(([k, s]) => s.enabled);
+      if (enabled.length === 0) return showToast('请至少勾选一个规格');
+      renderBatchPreviews(true);
+      setTimeout(() => {
+        enabled.forEach(([type, cfg], i) => {
+          setTimeout(() => {
+            const prefix = $('export-name-prefix')?.value.trim() || state.product.title?.replace(/[\\/:*?"<>|]/g, '_') || '直播物料';
+            const fname = `${prefix}_${cfg.name}_${cfg.width}x${cfg.height}.png`;
+            downloadDataUrl(state.batchImages[type], fname);
+          }, i * 350);
+        });
+        addToHistory();
+        showToast('已开始下载 ' + enabled.length + ' 张图');
+      }, 600);
     });
   }
 
-  function getBatchConfigs() {
-    return {
-      cover: { name: '直播封面', width: 800, height: 800 },
-      corner: { name: '直播间角标', width: 200, height: 200 },
-      banner: { name: '横幅海报', width: 1920, height: 1080 },
-      danmu: { name: '弹幕贴图', width: 600, height: 150 }
-    };
+  function renderBatchSizeGrid() {
+    const box = $('batch-size-grid');
+    if (!box) return;
+    box.innerHTML = '';
+    Object.entries(state.batchSizes).forEach(([type, cfg]) => {
+      const div = document.createElement('div');
+      div.className = 'batch-size-card' + (cfg.enabled ? ' selected' : '') + (state.activeBatchType === type ? ' selected' : '');
+      div.innerHTML = `
+        <input type="checkbox" ${cfg.enabled ? 'checked' : ''}>
+        <div class="batch-size-info">
+          <div class="batch-size-name">${cfg.name}</div>
+          <div class="batch-size-dim">${cfg.width}×${cfg.height}</div>
+        </div>
+      `;
+      div.addEventListener('click', (e) => {
+        if (e.target.tagName === 'INPUT') {
+          cfg.enabled = e.target.checked;
+          div.classList.toggle('selected', cfg.enabled);
+          updateExportNamePreview();
+          renderBatchPreviews();
+          return;
+        }
+        state.activeBatchType = type;
+        const t = state.batchTweaks[type] || { titleY: 78, priceSize: 10, priceY: 68 };
+        $('tweak-title-y').value = t.titleY; $('tweak-title-y-val').textContent = t.titleY + '%';
+        $('tweak-price-size').value = t.priceSize; $('tweak-price-size-val').textContent = t.priceSize + '%';
+        $('tweak-price-y').value = t.priceY; $('tweak-price-y-val').textContent = t.priceY + '%';
+        $('batch-tweaks-section').style.display = 'flex';
+        renderBatchSizeGrid();
+        renderBatchPreviews();
+      });
+      box.appendChild(div);
+    });
+  }
+
+  function updateExportNamePreview() {
+    const box = $('export-preview');
+    if (!box) return;
+    const prefix = $('export-name-prefix')?.value.trim() || state.product.title?.replace(/[\\/:*?"<>|]/g, '_') || '直播物料';
+    const list = Object.entries(state.batchSizes).filter(([k, s]) => s.enabled);
+    if (list.length === 0) {
+      box.innerHTML = '<div style="color:#999">请先勾选规格</div>';
+      return;
+    }
+    box.innerHTML = list.map(([type, cfg]) => `
+      <div class="export-preview-item">
+        <span>${cfg.name}</span>
+        <span style="font-family:monospace;color:#667eea">${prefix}_${cfg.name}_${cfg.width}x${cfg.height}.png</span>
+      </div>
+    `).join('');
   }
 
   function renderBatchPreviews(force = false) {
     const grid = $('batch-preview-grid');
+    if (!grid) return;
     grid.innerHTML = '';
-    const configs = getBatchConfigs();
-    const checked = Array.from(document.querySelectorAll('.batch-checkbox:checked'))
-      .map(cb => cb.dataset.type);
-
-    checked.forEach(type => {
-      const cfg = configs[type];
+    const list = Object.entries(state.batchSizes).filter(([k, s]) => s.enabled);
+    if (list.length === 0) {
+      grid.innerHTML = '<div class="empty-state" style="padding:20px">请先勾选上方规格</div>';
+      return;
+    }
+    list.forEach(([type, cfg]) => {
       const item = document.createElement('div');
-      item.className = 'batch-preview-item';
+      item.className = 'batch-preview-item' + (state.activeBatchType === type ? ' active' : '');
+      item.style.cursor = 'pointer';
+      if (state.activeBatchType === type) {
+        item.style.border = '2px solid #667eea';
+        item.style.borderRadius = '8px';
+        item.style.padding = '4px';
+      }
 
       const canvas = document.createElement('canvas');
       canvas.width = cfg.width;
@@ -900,7 +1183,9 @@
       canvas.style.height = 'auto';
 
       const ctx = canvas.getContext('2d');
+      const tweaks = state.batchTweaks[type] || {};
       drawDesign(ctx, cfg.width, cfg.height, {
+        tweaks,
         onComplete: () => {
           state.batchImages[type] = canvas.toDataURL('image/png');
         }
@@ -908,9 +1193,20 @@
 
       const label = document.createElement('div');
       label.className = 'batch-preview-label';
-      label.textContent = cfg.name + ' ' + cfg.width + '×' + cfg.height;
+      const tweakBadge = state.batchTweaks[type] ? ' <span style="color:#f39c12">✓ 已微调</span>' : '';
+      label.innerHTML = cfg.name + ' ' + cfg.width + '×' + cfg.height + tweakBadge;
       item.appendChild(canvas);
       item.appendChild(label);
+      item.addEventListener('click', () => {
+        state.activeBatchType = type;
+        const t = state.batchTweaks[type] || { titleY: 78, priceSize: 10, priceY: 68 };
+        $('tweak-title-y').value = t.titleY; $('tweak-title-y-val').textContent = t.titleY + '%';
+        $('tweak-price-size').value = t.priceSize; $('tweak-price-size-val').textContent = t.priceSize + '%';
+        $('tweak-price-y').value = t.priceY; $('tweak-price-y-val').textContent = t.priceY + '%';
+        $('batch-tweaks-section').style.display = 'flex';
+        renderBatchSizeGrid();
+        renderBatchPreviews();
+      });
       grid.appendChild(item);
     });
   }
@@ -954,9 +1250,9 @@
     $('btn-download-all').addEventListener('click', () => {
       renderBatchPreviews(true);
       setTimeout(() => {
-        Object.keys(state.batchImages).forEach((type, i) => {
+        Object.entries(state.batchSizes).filter(([k, s]) => s.enabled).forEach(([type, cfg], i) => {
+          if (!state.batchImages[type]) return;
           setTimeout(() => {
-            const cfg = getBatchConfigs()[type];
             downloadDataUrl(state.batchImages[type], generateFileName(cfg.name));
           }, i * 300);
         });
@@ -1014,6 +1310,118 @@
         showToast('配置已恢复，可继续编辑');
       } catch (e) { showToast('导入失败：' + e.message); }
     });
+
+    $('btn-export-pack')?.addEventListener('click', exportTeamPack);
+    $('btn-import-pack')?.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            importTeamPack(JSON.parse(ev.target.result));
+          } catch (err) { showToast('导入失败：文件格式错误'); }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    });
+  }
+
+  function exportTeamPack() {
+    const name = $('team-pack-name')?.value.trim() || ('素材包_' + new Date().toISOString().slice(0, 10));
+    const pack = {
+      v: 2,
+      type: 'team-pack',
+      name,
+      exportTime: new Date().toLocaleString('zh-CN'),
+      brandColors: $('pack-brand')?.checked ? [...state.brandColors] : [],
+      customTemplates: $('pack-templates')?.checked ? [...state.customTemplates] : [],
+      favoriteTemplateIds: $('pack-templates')?.checked ? [...state.favoriteTemplates] : [],
+      stickers: $('pack-stickers')?.checked ? [...state.canvas.stickers] : [],
+      products: $('pack-products')?.checked ? state.recentProducts.filter(p => p.isCard).map(p => ({ ...p })) : [],
+      currentConfig: $('pack-current')?.checked ? {
+        product: { ...state.product },
+        canvas: { ...state.canvas },
+        template: state.selectedTemplate ? { id: state.selectedTemplate.id, isCustom: state.selectedTemplate.category === 'custom' } : null
+      } : null
+    };
+    const json = JSON.stringify(pack, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name.replace(/[\\/:*?"<>|]/g, '_') + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    showToast('素材包已导出：' + name);
+  }
+
+  function importTeamPack(pack) {
+    if (!pack || pack.type !== 'team-pack') return showToast('文件不是有效的团队素材包');
+    let summary = [];
+    if (pack.brandColors && pack.brandColors.length) {
+      pack.brandColors.forEach(bc => {
+        if (!state.brandColors.find(x => x.color === bc.color)) state.brandColors.push(bc);
+      });
+      summary.push('🎨 品牌色 ' + pack.brandColors.length + ' 个');
+    }
+    if (pack.customTemplates && pack.customTemplates.length) {
+      pack.customTemplates.forEach(tpl => {
+        if (!state.customTemplates.find(t => t.id === tpl.id)) state.customTemplates.push(tpl);
+      });
+      summary.push('📋 自定义模板 ' + pack.customTemplates.length + ' 个');
+    }
+    if (pack.favoriteTemplateIds && pack.favoriteTemplateIds.length) {
+      pack.favoriteTemplateIds.forEach(id => {
+        if (!state.favoriteTemplates.includes(id)) state.favoriteTemplates.push(id);
+      });
+    }
+    if (pack.stickers && pack.stickers.length) {
+      pack.stickers.forEach(s => {
+        if (!state.canvas.stickers.includes(s)) state.canvas.stickers.push(s);
+      });
+      summary.push('🏷️ 贴纸 ' + pack.stickers.length + ' 个');
+      syncStickerUI();
+    }
+    if (pack.products && pack.products.length) {
+      pack.products.forEach(p => {
+        if (!state.recentProducts.find(r => r.id === p.id)) state.recentProducts.push(p);
+      });
+      if (state.recentProducts.length > 30) state.recentProducts = state.recentProducts.slice(0, 30);
+      summary.push('💳 商品卡片 ' + pack.products.length + ' 个');
+    }
+    if (pack.currentConfig) {
+      if (pack.currentConfig.product) Object.assign(state.product, pack.currentConfig.product);
+      if (pack.currentConfig.canvas) Object.assign(state.canvas, pack.currentConfig.canvas);
+      if (pack.currentConfig.template) {
+        let tpl = templates.find(t => t.id === pack.currentConfig.template.id);
+        if (!tpl) tpl = state.customTemplates.find(t => t.id === pack.currentConfig.template.id);
+        if (tpl) state.selectedTemplate = tpl;
+      }
+      updateProductForm();
+      syncCanvasControls();
+      syncStickerUI();
+      summary.push('🖼️ 当前画布配置已恢复');
+    }
+    saveAllState();
+    renderBrandColors();
+    renderFavoriteTemplates();
+    renderRecentProducts();
+    renderCanvas();
+    showModal('导入成功', `
+      <div style="font-size:13px;color:#333;margin-bottom:10px">
+        素材包「<b>${pack.name}</b>」导入完成：
+      </div>
+      <ul class="compare-summary-list" style="margin-left:0">
+        ${summary.map(s => '<li>' + s + '</li>').join('')}
+      </ul>
+      <div class="modal-actions">
+        <button class="btn btn-primary" data-confirm>确定</button>
+      </div>
+    `, null, true);
   }
 
   function serializeShareConfig() {
@@ -1108,7 +1516,7 @@
     a.click();
   }
 
-  function addToHistory() {
+  function addToHistory(sourceId) {
     const thumb = $('main-canvas').toDataURL('image/png');
     const entry = {
       id: Date.now(),
@@ -1119,7 +1527,8 @@
       product: JSON.parse(JSON.stringify(state.product)),
       canvas: JSON.parse(JSON.stringify(state.canvas)),
       templateId: state.selectedTemplate?.id,
-      templateIsCustom: state.selectedTemplate?.category === 'custom'
+      templateIsCustom: state.selectedTemplate?.category === 'custom',
+      sourceId: sourceId || null
     };
     state.history.unshift(entry);
     if (state.history.length > 100) state.history = state.history.slice(0, 100);
@@ -1150,18 +1559,24 @@
       const el = document.createElement('div');
       const selected = state.selectedHistoryIds.includes(item.id);
       el.className = 'history-item has-checkbox' + (selected ? ' selected' : '');
+      const srcItem = item.sourceId ? state.history.find(h => h.id === item.sourceId) : null;
+      const srcTag = item.sourceId
+        ? (srcItem
+            ? `<span class="history-source-tag" title="来源：${srcItem.title}">分支自：${srcItem.title.slice(0, 8)}${srcItem.title.length > 8 ? '…' : ''}</span>`
+            : `<span class="history-branch-tag">源自历史版本</span>`)
+        : '';
       el.innerHTML = `
         <div class="history-item-checkbox-wrapper">
           <input type="checkbox" class="history-item-checkbox" ${selected ? 'checked' : ''} title="勾选用于对比">
         </div>
         <img class="history-thumb" src="${item.thumb}" alt="">
         <div class="history-info">
-          <div class="history-title">${item.title}</div>
+          <div class="history-title">${item.title}${srcTag}</div>
           <div class="history-time">${item.template} · ${item.time}</div>
           <div class="history-item-action">
             <button data-act="rename" title="重命名">✏️改名</button>
             <button data-act="restore" title="恢复版本">↩️恢复</button>
-            <button data-act="duplicate" title="复制为新版本">📋复制</button>
+            <button data-act="duplicate" title="复制为新版本并继续编辑">📋复制</button>
             <button data-act="fav" title="存为常用模板">⭐存模板</button>
             <button data-act="del" title="删除">🗑️</button>
           </div>
@@ -1201,8 +1616,11 @@
       el.querySelector('[data-act="duplicate"]').addEventListener('click', e => {
         e.stopPropagation();
         restoreHistoryItem(item);
-        addToHistory();
-        showToast('已复制为新版本');
+        const origId = item.id;
+        setTimeout(() => {
+          addToHistory(origId);
+          showToast('已复制为分支版本，可继续编辑');
+        }, 50);
       });
       el.querySelector('[data-act="fav"]').addEventListener('click', e => {
         e.stopPropagation();
@@ -1296,11 +1714,13 @@
     };
     const fa = JSON.parse(JSON.stringify(a));
     const fb = JSON.parse(JSON.stringify(b));
+    const diffs = [];
     let rowsHtml = '';
     fields.forEach(f => {
       const va = get(fa, f.path, f.fmt);
       const vb = get(fb, f.path, f.fmt);
       const diff = va !== vb;
+      if (diff) diffs.push(f);
       rowsHtml += `
         <div class="compare-item ${diff ? 'different' : ''}">
           <div class="compare-label">${f.label}</div>
@@ -1309,22 +1729,34 @@
         </div>
       `;
     });
-    showModal('版本参数对比', `
-      <div class="compare-thumbs">
-        <div class="compare-thumb-box">
+    const summaryItems = [];
+    if (diffs.length === 0) {
+      summaryItems.push('两个版本参数完全相同');
+    } else {
+      diffs.forEach(f => summaryItems.push(`${f.label}：「${get(fa, f.path, f.fmt)}」 → 「${get(fb, f.path, f.fmt)}」`));
+    }
+    showModal('版本对比', `
+      <div class="compare-side-by-side">
+        <div class="compare-side-box">
           <img src="${a.thumb}" alt="">
-          <div class="compare-thumb-label">A: ${a.title}</div>
+          <div class="compare-side-label">A：${a.title}</div>
         </div>
-        <div class="compare-thumb-box">
+        <div class="compare-side-box">
           <img src="${b.thumb}" alt="">
-          <div class="compare-thumb-label">B: ${b.title}</div>
+          <div class="compare-side-label">B：${b.title}</div>
         </div>
+      </div>
+      <div class="compare-summary">
+        <div class="compare-summary-title">📊 主要变化（${diffs.length} 处差异）</div>
+        <ul class="compare-summary-list">
+          ${summaryItems.map(s => '<li>' + s + '</li>').join('')}
+        </ul>
       </div>
       <div class="compare-section">${rowsHtml}</div>
       <div class="modal-actions">
         <button class="btn btn-secondary" data-close>关闭</button>
       </div>
-    `);
+    `, null, true);
     setTimeout(() => {
       const c = $('modal-body').querySelector('[data-close]');
       if (c) c.addEventListener('click', () => $('modal-overlay').style.display = 'none');

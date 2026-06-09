@@ -60,8 +60,16 @@
 
           <div class="candidate-section" id="candidate-section" style="display:none">
             <div class="section-header">
+              <h3>� 候选标题</h3>
+              <small class="hint">点击选择要使用的标题</small>
+            </div>
+            <div class="candidate-titles" id="candidate-titles"></div>
+            <div class="section-header" style="margin-top:10px">
               <h3>🖼️ 候选主图</h3>
-              <small class="hint">点击选择要使用的商品图</small>
+              <div style="display:flex;gap:6px;align-items:center">
+                <small class="hint">点击选择，可裁剪</small>
+                <button class="btn btn-secondary btn-xs" id="btn-crop-image" style="display:none">✂️ 裁剪主图</button>
+              </div>
             </div>
             <div class="candidate-images" id="candidate-images"></div>
             <div class="section-header" style="margin-top:10px">
@@ -69,6 +77,11 @@
               <small class="hint">点击选择要使用的价格</small>
             </div>
             <div class="candidate-prices" id="candidate-prices"></div>
+            <div class="section-header" style="margin-top:12px">
+              <button class="btn btn-primary btn-sm" id="btn-save-product-card" style="width:100%">
+                <span>💳</span> 保存为商品卡片
+              </button>
+            </div>
           </div>
 
           <div class="product-form">
@@ -109,9 +122,10 @@
 
           <div class="recent-products-section">
             <div class="section-header">
-              <h3>🕒 最近使用商品</h3>
+              <h3>� 商品卡片库</h3>
               <button class="btn btn-secondary btn-sm" id="btn-clear-recent">清空</button>
             </div>
+            <small class="hint" style="color:#999;margin-top:-8px;display:block">保存的商品卡片可随时复用</small>
             <div class="recent-products" id="recent-products"></div>
           </div>
         </div>
@@ -257,48 +271,68 @@
 
       <section class="panel" id="panel-batch">
         <div class="panel-header">
-          <h2>批量生成</h2>
-          <p class="panel-desc">一键生成多种规格物料，与主画布效果完全一致</p>
+          <h2>批量生产</h2>
+          <p class="panel-desc">勾选规格，可单独微调，按商品名+规格命名导出</p>
         </div>
         <div class="panel-body">
-          <div class="batch-types">
-            <label class="batch-type-card">
-              <input type="checkbox" class="batch-checkbox" data-type="cover" checked>
-              <div class="batch-type-content">
-                <span class="batch-icon">🖼️</span>
-                <span class="batch-name">直播封面</span>
-                <span class="batch-size">800×800</span>
-              </div>
-            </label>
-            <label class="batch-type-card">
-              <input type="checkbox" class="batch-checkbox" data-type="corner" checked>
-              <div class="batch-type-content">
-                <span class="batch-icon">🔲</span>
-                <span class="batch-name">直播间角标</span>
-                <span class="batch-size">200×200</span>
-              </div>
-            </label>
-            <label class="batch-type-card">
-              <input type="checkbox" class="batch-checkbox" data-type="banner" checked>
-              <div class="batch-type-content">
-                <span class="batch-icon">📏</span>
-                <span class="batch-name">横幅海报</span>
-                <span class="batch-size">1920×1080</span>
-              </div>
-            </label>
-            <label class="batch-type-card">
-              <input type="checkbox" class="batch-checkbox" data-type="danmu" checked>
-              <div class="batch-type-content">
-                <span class="batch-icon">💬</span>
-                <span class="batch-name">弹幕贴图</span>
-                <span class="batch-size">600×150</span>
-              </div>
-            </label>
+          <div class="batch-size-presets">
+            <div class="section-header">
+              <h3>📐 选择尺寸规格</h3>
+              <button class="btn btn-secondary btn-xs" id="btn-select-all-sizes">全选</button>
+            </div>
+            <div class="batch-size-grid" id="batch-size-grid"></div>
           </div>
+
+          <div class="batch-tweaks-section" id="batch-tweaks-section" style="display:none">
+            <div class="section-header">
+              <h3>🎛️ 单图微调</h3>
+              <small class="hint">选择当前规格后可单独调整</small>
+            </div>
+            <div class="batch-tweaks" id="batch-tweaks">
+              <div class="tweak-group">
+                <label>标题位置 Y</label>
+                <div class="tweak-control">
+                  <input type="range" id="tweak-title-y" min="40" max="95" value="78">
+                  <span id="tweak-title-y-val">78%</span>
+                </div>
+              </div>
+              <div class="tweak-group">
+                <label>价格大小</label>
+                <div class="tweak-control">
+                  <input type="range" id="tweak-price-size" min="5" max="20" value="10">
+                  <span id="tweak-price-size-val">10%</span>
+                </div>
+              </div>
+              <div class="tweak-group">
+                <label>价格位置 Y</label>
+                <div class="tweak-control">
+                  <input type="range" id="tweak-price-y" min="40" max="90" value="68">
+                  <span id="tweak-price-y-val">68%</span>
+                </div>
+              </div>
+              <div class="tweak-actions">
+                <button class="btn btn-secondary btn-sm" id="btn-apply-tweak">应用到当前规格</button>
+                <button class="btn btn-secondary btn-sm" id="btn-reset-tweak">重置</button>
+              </div>
+            </div>
+          </div>
+
           <div class="batch-preview-grid" id="batch-preview-grid"></div>
+
+          <div class="batch-export-info">
+            <div class="section-header">
+              <h3>📦 导出信息</h3>
+            </div>
+            <div class="export-info-row">
+              <label>商品名前缀</label>
+              <input type="text" id="export-name-prefix" placeholder="留空自动使用商品标题">
+            </div>
+            <div class="export-preview" id="export-preview"></div>
+          </div>
+
           <div class="batch-actions">
             <button class="btn btn-primary btn-lg" id="btn-generate-all">
-              <span>✨</span> 一键生成全部
+              <span>✨</span> 生成并导出勾选的规格
             </button>
           </div>
         </div>
@@ -396,7 +430,7 @@
           </div>
 
           <div class="share-section">
-            <h3>🔗 分享 / 导入配置</h3>
+            <h3>🔗 单次分享 / 导入</h3>
             <div class="share-form">
               <input type="text" id="share-link" readonly placeholder="点击生成分享链接或分享码">
               <button class="btn btn-secondary" id="btn-generate-share">生成</button>
@@ -405,6 +439,25 @@
             <div class="share-form" style="margin-top:8px">
               <input type="text" id="import-code" placeholder="粘贴分享码/链接以恢复配置">
               <button class="btn btn-primary" id="btn-import-share">导入恢复</button>
+            </div>
+          </div>
+
+          <div class="team-pack-section">
+            <h3>📦 团队素材包</h3>
+            <small class="hint" style="color:#999;margin-top:-6px;display:block">导出品牌色 + 模板 + 贴纸组合 + 商品卡片，团队成员导入即可复用</small>
+            <div class="team-pack-form">
+              <input type="text" id="team-pack-name" placeholder="素材包名称，如：618大促素材包">
+            </div>
+            <div class="team-pack-checks">
+              <label class="pack-check"><input type="checkbox" id="pack-brand" checked> 🎨 品牌色</label>
+              <label class="pack-check"><input type="checkbox" id="pack-templates" checked> 📋 自定义模板</label>
+              <label class="pack-check"><input type="checkbox" id="pack-stickers" checked> 🏷️ 贴纸组合</label>
+              <label class="pack-check"><input type="checkbox" id="pack-products" checked> 💳 商品卡片</label>
+              <label class="pack-check"><input type="checkbox" id="pack-current" checked> 🖼️ 当前画布配置</label>
+            </div>
+            <div class="team-pack-actions">
+              <button class="btn btn-secondary" id="btn-export-pack">📤 导出素材包</button>
+              <button class="btn btn-primary" id="btn-import-pack">📥 导入素材包</button>
             </div>
           </div>
         </div>
