@@ -40,7 +40,9 @@
       corner: { name: '直播间角标', width: 200, height: 200, enabled: true },
       banner: { name: '横幅海报', width: 1920, height: 1080, enabled: true },
       danmu: { name: '弹幕贴图', width: 600, height: 150, enabled: true }
-    }
+    },
+    taskQueue: [],
+    activeTaskIndex: -1
   };
 
   const templates = [
@@ -1103,6 +1105,154 @@
         showToast('已开始下载 ' + enabled.length + ' 张图');
       }, 600);
     });
+
+    $('btn-add-task')?.addEventListener('click', () => {
+      if (!state.product.title && !state.product.price) return showToast('请先填写商品信息');
+      addTaskToQueue();
+    });
+    $('btn-clear-queue')?.addEventListener('click', () => {
+      if (!confirm('清空任务队列？')) return;
+      state.taskQueue = [];
+      state.activeTaskIndex = -1;
+      renderTaskQueue();
+    });
+    $('btn-execute-queue')?.addEventListener('click', executeTaskQueue);
+
+    renderTaskQueue();
+  }
+
+  function addTaskToQueue() {
+    const thumb = $('main-canvas').toDataURL('image/png');
+    const task = {
+      id: Date.now(),
+      thumb,
+      product: JSON.parse(JSON.stringify(state.product)),
+      canvas: JSON.parse(JSON.stringify(state.canvas)),
+      template: state.selectedTemplate ? { id: state.selectedTemplate.id, isCustom: state.selectedTemplate.category === 'custom' } : null,
+      enabledSizes: Object.entries(state.batchSizes).filter(([k, s]) => s.enabled).map(([k]) => k),
+      tweaks: JSON.parse(JSON.stringify(state.batchTweaks || {}))
+    };
+    state.taskQueue.push(task);
+    renderTaskQueue();
+    showToast(`已加入任务：${task.product.title || '未命名商品'}（共 ${state.taskQueue.length} 个任务）`);
+  }
+
+  function renderTaskQueue() {
+    const box = $('task-queue-list');
+    const actions = $('task-queue-actions');
+    if (!box) return;
+    box.innerHTML = '';
+    if (actions) actions.style.display = state.taskQueue.length > 0 ? 'flex' : 'none';
+    if (state.taskQueue.length === 0) {
+      box.innerHTML = '<div class="empty-state" style="padding:12px;font-size:12px;color:#999">点击「＋加入当前商品」添加生产任务</div>';
+      return;
+    }
+    state.taskQueue.forEach((task, idx) => {
+      const el = document.createElement('div');
+      el.className = 'task-item' + (state.activeTaskIndex === idx ? ' active' : '');
+      const thumb = task.thumb || (task.product.imageData || task.product.imageUrl);
+      el.innerHTML = `
+        <div class="task-item-thumb">${thumb ? `<img src="${thumb}" alt="">` : '📦'}</div>
+        <div class="task-item-info">
+          <div class="task-item-title">#${idx + 1} ${task.product.title || '未命名商品'}</div>
+          <div class="task-item-meta">${task.enabledSizes.length} 个规格 · ${task.product.price || '无价格'}${task.template ? ' · 模板：' + (templates.find(t => t.id === task.template.id)?.name || '自定义') : ''}</div>
+        </div>
+        <div class="task-item-actions">
+          <button data-act="load" title="载入此任务">📥</button>
+          <button data-act="up" title="上移">↑</button>
+          <button data-act="down" title="下移">↓</button>
+          <button data-act="del" title="删除">×</button>
+        </div>
+      `;
+      el.querySelector('[data-act="load"]').addEventListener('click', e => {
+        e.stopPropagation();
+        loadTaskFromQueue(idx);
+      });
+      el.querySelector('[data-act="up"]').addEventListener('click', e => {
+        e.stopPropagation();
+        if (idx === 0) return;
+        [state.taskQueue[idx - 1], state.taskQueue[idx]] = [state.taskQueue[idx], state.taskQueue[idx - 1]];
+        renderTaskQueue();
+      });
+      el.querySelector('[data-act="down"]').addEventListener('click', e => {
+        e.stopPropagation();
+        if (idx === state.taskQueue.length - 1) return;
+        [state.taskQueue[idx + 1], state.taskQueue[idx]] = [state.taskQueue[idx], state.taskQueue[idx + 1]];
+        renderTaskQueue();
+      });
+      el.querySelector('[data-act="del"]').addEventListener('click', e => {
+        e.stopPropagation();
+        state.taskQueue.splice(idx, 1);
+        if (state.activeTaskIndex >= state.taskQueue.length) state.activeTaskIndex = -1;
+        renderTaskQueue();
+      });
+      box.appendChild(el);
+    });
+  }
+
+  function loadTaskFromQueue(idx) {
+    const task = state.taskQueue[idx];
+    if (!task) return;
+    state.activeTaskIndex = idx;
+    state.product = JSON.parse(JSON.stringify(task.product));
+    state.canvas = JSON.parse(JSON.stringify(task.canvas));
+    state.batchTweaks = JSON.parse(JSON.stringify(task.tweaks || {}));
+    Object.keys(state.batchSizes).forEach(k => state.batchSizes[k].enabled = task.enabledSizes.includes(k));
+    if (task.template) {
+      let tpl = templates.find(t => t.id === task.template.id);
+      if (!tpl) tpl = state.customTemplates.find(t => t.id === task.template.id);
+      state.selectedTemplate = tpl || null;
+    } else {
+      state.selectedTemplate = null;
+    }
+    updateProductForm();
+    syncCanvasControls();
+    syncStickerUI();
+    renderBatchSizeGrid();
+    renderTaskQueue();
+    renderCanvas();
+    renderBatchPreviews();
+    updateExportNamePreview();
+    showToast(`已载入任务 #${idx + 1}`);
+  }
+
+  async function executeTaskQueue() {
+    if (state.taskQueue.length === 0) return showToast('任务队列为空');
+    showToast(`开始生成 ${state.taskQueue.length} 个任务...`);
+    let total = 0;
+    for (let i = 0; i < state.taskQueue.length; i++) {
+      const task = state.taskQueue[i];
+      const baseName = (task.product.title || '商品').replace(/[\\/:*?"<>|]/g, '_');
+      let tpl = null;
+      if (task.template) {
+        tpl = templates.find(t => t.id === task.template.id) || state.customTemplates.find(t => t.id === task.template.id) || null;
+      }
+      const seq = String(i + 1).padStart(2, '0');
+      for (let j = 0; j < task.enabledSizes.length; j++) {
+        const type = task.enabledSizes[j];
+        const cfg = state.batchSizes[type];
+        if (!cfg) continue;
+        const canvas = document.createElement('canvas');
+        canvas.width = cfg.width; canvas.height = cfg.height;
+        const ctx = canvas.getContext('2d');
+        await new Promise(resolve => {
+          drawDesign(ctx, cfg.width, cfg.height, {
+            product: task.product,
+            canvas: task.canvas,
+            template: tpl,
+            tweaks: task.tweaks?.[type] || {},
+            onComplete: resolve
+          });
+        });
+        const dataUrl = canvas.toDataURL('image/png');
+        const fname = `${baseName}_${cfg.name}_${seq}_${cfg.width}x${cfg.height}.png`;
+        downloadDataUrl(dataUrl, fname);
+        total++;
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+    addToHistory();
+    showToast(`完成！共生成并下载 ${total} 张图片`);
   }
 
   function renderBatchSizeGrid() {
@@ -1288,11 +1438,12 @@
       showCompareModal(a, b);
     });
 
-    $('btn-generate-share').addEventListener('click', () => {
+    $('btn-generate-share').addEventListener('click', async () => {
       try {
-        const code = serializeShareConfig();
-        $('share-link').value = SHARE_PREFIX + code;
-        showToast('分享码已生成');
+        showToast('正在生成分享码...');
+        const code = await serializeShareConfig();
+        $('share-link').value = code;
+        showToast('分享码已生成（图片已嵌入）');
       } catch (e) { showToast('生成失败：' + e.message); }
     });
 
@@ -1359,74 +1510,233 @@
     showToast('素材包已导出：' + name);
   }
 
-  function importTeamPack(pack) {
-    if (!pack || pack.type !== 'team-pack') return showToast('文件不是有效的团队素材包');
-    let summary = [];
-    if (pack.brandColors && pack.brandColors.length) {
-      pack.brandColors.forEach(bc => {
-        if (!state.brandColors.find(x => x.color === bc.color)) state.brandColors.push(bc);
-      });
-      summary.push('🎨 品牌色 ' + pack.brandColors.length + ' 个');
-    }
-    if (pack.customTemplates && pack.customTemplates.length) {
-      pack.customTemplates.forEach(tpl => {
-        if (!state.customTemplates.find(t => t.id === tpl.id)) state.customTemplates.push(tpl);
-      });
-      summary.push('📋 自定义模板 ' + pack.customTemplates.length + ' 个');
-    }
-    if (pack.favoriteTemplateIds && pack.favoriteTemplateIds.length) {
-      pack.favoriteTemplateIds.forEach(id => {
-        if (!state.favoriteTemplates.includes(id)) state.favoriteTemplates.push(id);
-      });
-    }
-    if (pack.stickers && pack.stickers.length) {
-      pack.stickers.forEach(s => {
-        if (!state.canvas.stickers.includes(s)) state.canvas.stickers.push(s);
-      });
-      summary.push('🏷️ 贴纸 ' + pack.stickers.length + ' 个');
-      syncStickerUI();
-    }
-    if (pack.products && pack.products.length) {
-      pack.products.forEach(p => {
-        if (!state.recentProducts.find(r => r.id === p.id)) state.recentProducts.push(p);
-      });
-      if (state.recentProducts.length > 30) state.recentProducts = state.recentProducts.slice(0, 30);
-      summary.push('💳 商品卡片 ' + pack.products.length + ' 个');
-    }
+  function renderPackPreview(pack) {
+    let html = '';
     if (pack.currentConfig) {
-      if (pack.currentConfig.product) Object.assign(state.product, pack.currentConfig.product);
-      if (pack.currentConfig.canvas) Object.assign(state.canvas, pack.currentConfig.canvas);
-      if (pack.currentConfig.template) {
-        let tpl = templates.find(t => t.id === pack.currentConfig.template.id);
-        if (!tpl) tpl = state.customTemplates.find(t => t.id === pack.currentConfig.template.id);
-        if (tpl) state.selectedTemplate = tpl;
+      const { product, canvas, template } = pack.currentConfig;
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = 800; tmpCanvas.height = 800;
+      const ctx = tmpCanvas.getContext('2d');
+      let tplObj = null;
+      if (template) {
+        tplObj = templates.find(t => t.id === template.id) || pack.customTemplates?.find(t => t.id === template.id) || null;
       }
-      updateProductForm();
-      syncCanvasControls();
-      syncStickerUI();
-      summary.push('🖼️ 当前画布配置已恢复');
+      drawDesign(ctx, 800, 800, { product, canvas, template: tplObj });
+      const thumb = tmpCanvas.toDataURL('image/png');
+      html += `
+        <div>
+          <h4>🖼️ 当前画布预览</h4>
+          <div class="pack-preview-canvas"><img src="${thumb}" alt=""></div>
+          <div class="pack-info-row" style="margin-top:8px">
+            <span class="pack-info-label">标题</span>
+            <span class="pack-info-value">${product?.title || '(空)'}</span>
+          </div>
+          <div class="pack-info-row">
+            <span class="pack-info-label">尺寸</span>
+            <span class="pack-info-value">${canvas?.width || 800}×${canvas?.height || 800}</span>
+          </div>
+        </div>
+      `;
     }
-    saveAllState();
-    renderBrandColors();
-    renderFavoriteTemplates();
-    renderRecentProducts();
-    renderCanvas();
-    showModal('导入成功', `
-      <div style="font-size:13px;color:#333;margin-bottom:10px">
-        素材包「<b>${pack.name}</b>」导入完成：
-      </div>
-      <ul class="compare-summary-list" style="margin-left:0">
-        ${summary.map(s => '<li>' + s + '</li>').join('')}
-      </ul>
-      <div class="modal-actions">
-        <button class="btn btn-primary" data-confirm>确定</button>
-      </div>
-    `, null, true);
+    if (pack.brandColors?.length) {
+      html += `<div>
+        <h4>🎨 品牌色（${pack.brandColors.length} 个）</h4>
+        <div class="pack-preview-grid">
+          ${pack.brandColors.slice(0, 12).map(bc => `
+            <div class="pack-preview-item">
+              <div class="pack-preview-swatch" style="background:${bc.color}"></div>
+              <span>${bc.name || bc.color}</span>
+            </div>
+          `).join('')}
+          ${pack.brandColors.length > 12 ? `<div class="pack-preview-item">+${pack.brandColors.length - 12}</div>` : ''}
+        </div>
+      </div>`;
+    }
+    if (pack.customTemplates?.length) {
+      html += `<div>
+        <h4>📋 自定义模板（${pack.customTemplates.length} 个）</h4>
+        <div class="pack-preview-grid">
+          ${pack.customTemplates.slice(0, 8).map(tpl => `
+            <div class="pack-preview-item">
+              <div class="pack-preview-tpl" style="background:${tpl.bgColor || 'linear-gradient(135deg,#667eea,#764ba2)'}">${tpl.icon || '📋'}</div>
+              <span>${(tpl.name || '模板').slice(0, 6)}</span>
+            </div>
+          `).join('')}
+          ${pack.customTemplates.length > 8 ? `<div class="pack-preview-item">+${pack.customTemplates.length - 8}</div>` : ''}
+        </div>
+      </div>`;
+    }
+    if (pack.stickers?.length) {
+      html += `<div>
+        <h4>🏷️ 贴纸组合（${pack.stickers.length} 个）</h4>
+        <div style="font-size:22px;letter-spacing:4px;padding:8px;background:#f5f6fa;border-radius:6px">
+          ${pack.stickers.join(' ')}
+        </div>
+      </div>`;
+    }
+    if (pack.products?.length) {
+      html += `<div>
+        <h4>💳 商品卡片（${pack.products.length} 个）</h4>
+        <div class="pack-preview-grid">
+          ${pack.products.slice(0, 8).map(p => `
+            <div class="pack-preview-item" title="${p.cardName || p.title}">
+              <div class="pack-preview-prod">${p.imageData || p.imageUrl ? `<img src="${p.imageData || p.imageUrl}" alt="">` : '📦'}</div>
+              <span>${(p.cardName || p.title || '商品').slice(0, 6)}</span>
+            </div>
+          `).join('')}
+          ${pack.products.length > 8 ? `<div class="pack-preview-item">+${pack.products.length - 8}</div>` : ''}
+        </div>
+      </div>`;
+    }
+    return html;
   }
 
-  function serializeShareConfig() {
+  function importTeamPack(pack) {
+    if (!pack || pack.type !== 'team-pack') return showToast('文件不是有效的团队素材包');
+
+    const hasBrand = (pack.brandColors || []).length > 0;
+    const hasTpl = (pack.customTemplates || []).length > 0;
+    const hasSticker = (pack.stickers || []).length > 0;
+    const hasProd = (pack.products || []).length > 0;
+    const hasCanvas = !!pack.currentConfig;
+
+    const previewHtml = renderPackPreview(pack);
+
+    showModal(`导入项目包：${pack.name}`, `
+      <div class="pack-import-section">
+        <div class="pack-info-row">
+          <span class="pack-info-label">包名称</span>
+          <span class="pack-info-value">${pack.name}</span>
+        </div>
+        <div class="pack-info-row">
+          <span class="pack-info-label">导出时间</span>
+          <span class="pack-info-value">${pack.exportTime || '-'}</span>
+        </div>
+
+        ${previewHtml ? `<div>${previewHtml}</div>` : ''}
+
+        <div>
+          <h4>✅ 选择要导入的内容</h4>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${hasCanvas ? `<div class="pack-check-row">
+              <label><input type="checkbox" id="p-import-canvas" checked> 🖼️ 恢复当前画布配置</label>
+              <span class="pack-check-count">即时生效</span>
+            </div>` : ''}
+            ${hasBrand ? `<div class="pack-check-row">
+              <label><input type="checkbox" id="p-import-brand" checked> 🎨 品牌色</label>
+              <span class="pack-check-count">${pack.brandColors.length} 个</span>
+            </div>` : ''}
+            ${hasTpl ? `<div class="pack-check-row">
+              <label><input type="checkbox" id="p-import-tpl" checked> 📋 自定义模板</label>
+              <span class="pack-check-count">${pack.customTemplates.length} 个</span>
+            </div>` : ''}
+            ${hasSticker ? `<div class="pack-check-row">
+              <label><input type="checkbox" id="p-import-sticker" checked> 🏷️ 贴纸组合</label>
+              <span class="pack-check-count">${pack.stickers.length} 个</span>
+            </div>` : ''}
+            ${hasProd ? `<div class="pack-check-row">
+              <label><input type="checkbox" id="p-import-prod" checked> 💳 商品卡片</label>
+              <span class="pack-check-count">${pack.products.length} 个</span>
+            </div>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn btn-secondary" data-close>取消</button>
+        <button class="btn btn-primary" data-confirm>确认导入</button>
+      </div>
+    `, () => {
+      const summary = [];
+      const doBrand = hasBrand && $('p-import-brand')?.checked;
+      const doTpl = hasTpl && $('p-import-tpl')?.checked;
+      const doSticker = hasSticker && $('p-import-sticker')?.checked;
+      const doProd = hasProd && $('p-import-prod')?.checked;
+      const doCanvas = hasCanvas && $('p-import-canvas')?.checked;
+
+      if (doBrand && pack.brandColors?.length) {
+        pack.brandColors.forEach(bc => {
+          if (!state.brandColors.find(x => x.color === bc.color)) state.brandColors.push(bc);
+        });
+        summary.push('🎨 品牌色 ' + pack.brandColors.length + ' 个');
+      }
+      if (doTpl && pack.customTemplates?.length) {
+        pack.customTemplates.forEach(tpl => {
+          if (!state.customTemplates.find(t => t.id === tpl.id)) state.customTemplates.push(tpl);
+        });
+        if (pack.favoriteTemplateIds?.length) {
+          pack.favoriteTemplateIds.forEach(id => {
+            if (!state.favoriteTemplates.includes(id)) state.favoriteTemplates.push(id);
+          });
+        }
+        summary.push('📋 自定义模板 ' + pack.customTemplates.length + ' 个');
+      }
+      if (doSticker && pack.stickers?.length) {
+        pack.stickers.forEach(s => {
+          if (!state.canvas.stickers.includes(s)) state.canvas.stickers.push(s);
+        });
+        summary.push('🏷️ 贴纸 ' + pack.stickers.length + ' 个');
+      }
+      if (doProd && pack.products?.length) {
+        pack.products.forEach(p => {
+          if (!state.recentProducts.find(r => r.id === p.id)) state.recentProducts.push(p);
+        });
+        if (state.recentProducts.length > 30) state.recentProducts = state.recentProducts.slice(0, 30);
+        summary.push('💳 商品卡片 ' + pack.products.length + ' 个');
+      }
+      if (doCanvas && pack.currentConfig) {
+        Object.assign(state.product, pack.currentConfig.product || {});
+        Object.assign(state.canvas, pack.currentConfig.canvas || {});
+        if (pack.currentConfig.template) {
+          let tpl = templates.find(t => t.id === pack.currentConfig.template.id);
+          if (!tpl) tpl = state.customTemplates.find(t => t.id === pack.currentConfig.template.id);
+          if (tpl) state.selectedTemplate = tpl;
+        }
+        summary.push('🖼️ 画布已恢复并即时刷新');
+      }
+
+      saveAllState();
+      if (doCanvas) {
+        updateProductForm();
+        syncCanvasControls();
+        syncStickerUI();
+        renderCanvas();
+      } else if (doSticker) {
+        syncStickerUI();
+        renderCanvas();
+      }
+      renderBrandColors();
+      renderFavoriteTemplates();
+      renderRecentProducts();
+      renderBatchPreviews();
+      showToast('导入完成 ' + (doCanvas ? '(画布已刷新)' : ''));
+    }, true);
+    setTimeout(() => {
+      const c = $('modal-body').querySelector('[data-close]');
+      if (c) c.addEventListener('click', () => $('modal-overlay').style.display = 'none');
+    }, 50);
+  }
+
+  function compressBase64(base64, maxW = 800, quality = 0.85) {
+    return new Promise(resolve => {
+      if (!base64 || !base64.startsWith('data:')) return resolve(base64);
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = h * (maxW / w); w = maxW; }
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(base64);
+      img.src = base64;
+    });
+  }
+
+  async function serializeShareConfig() {
     const payload = {
-      v: 1,
+      v: 2,
       product: {
         title: state.product.title,
         price: state.product.price,
@@ -1441,17 +1751,20 @@
       brandColors: [...state.brandColors],
       stickers: [...state.canvas.stickers]
     };
-    let data = JSON.stringify(payload);
-    try {
-      if (state.product.imageData && state.product.imageData.length < 300000) {
-        const withImg = JSON.stringify({ ...payload, _img: state.product.imageData });
-        if (withImg.length < 500000) data = withImg;
-      }
-    } catch (e) {}
+    let imgData = state.product.imageData;
+    if (imgData) {
+      try {
+        if (imgData.length > 800000) {
+          imgData = await compressBase64(imgData, 800, 0.85);
+        }
+        payload.product.imageData = imgData;
+      } catch (e) {}
+    }
+    const data = JSON.stringify(payload);
     const bytes = new TextEncoder().encode(data);
     let bin = '';
     bytes.forEach(b => bin += String.fromCharCode(b));
-    return btoa(bin);
+    return SHARE_PREFIX + btoa(bin);
   }
 
   function deserializeShareConfig(raw) {
@@ -1470,11 +1783,11 @@
       state.product.originalPrice = payload.product.originalPrice || '';
       state.product.imageUrl = payload.product.imageUrl || '';
       state.product.tags = payload.product.tags || [];
-      if (payload._img) state.product.imageData = payload._img;
+      state.product.imageData = payload.product.imageData || payload._img || null;
     }
     if (payload.canvas) {
       Object.assign(state.canvas, payload.canvas);
-      if (payload.stickers) state.canvas.stickers = payload.stickers;
+      if (payload.stickers && !payload.canvas.stickers) state.canvas.stickers = payload.stickers;
     }
     if (payload.template) {
       let tpl = templates.find(t => t.id === payload.template.id);
@@ -1516,7 +1829,7 @@
     a.click();
   }
 
-  function addToHistory(sourceId) {
+  function addToHistory(sourceId, approval) {
     const thumb = $('main-canvas').toDataURL('image/png');
     const entry = {
       id: Date.now(),
@@ -1528,10 +1841,30 @@
       canvas: JSON.parse(JSON.stringify(state.canvas)),
       templateId: state.selectedTemplate?.id,
       templateIsCustom: state.selectedTemplate?.category === 'custom',
-      sourceId: sourceId || null
+      sourceId: sourceId || null,
+      approval: approval || 'pending',
+      rejectReason: ''
     };
     state.history.unshift(entry);
     if (state.history.length > 100) state.history = state.history.slice(0, 100);
+    saveAllState();
+    renderHistory();
+  }
+
+  function getApprovalBadge(status, reason) {
+    const map = {
+      pending: { cls: 'approval-pending', label: '⏳ 待确认' },
+      approved: { cls: 'approval-approved', label: '✅ 已通过' },
+      rejected: { cls: 'approval-rejected', label: '❌ 已打回' }
+    };
+    const info = map[status] || map.pending;
+    return `<span class="approval-status ${info.cls}">${info.label}</span>`
+      + (status === 'rejected' && reason ? `<div class="approval-reject-reason">原因：${reason}</div>` : '');
+  }
+
+  function setApprovalStatus(item, status, reason) {
+    item.approval = status;
+    if (reason != null) item.rejectReason = reason;
     saveAllState();
     renderHistory();
   }
@@ -1565,19 +1898,23 @@
             ? `<span class="history-source-tag" title="来源：${srcItem.title}">分支自：${srcItem.title.slice(0, 8)}${srcItem.title.length > 8 ? '…' : ''}</span>`
             : `<span class="history-branch-tag">源自历史版本</span>`)
         : '';
+      const approvalBadge = getApprovalBadge(item.approval, item.rejectReason);
       el.innerHTML = `
         <div class="history-item-checkbox-wrapper">
           <input type="checkbox" class="history-item-checkbox" ${selected ? 'checked' : ''} title="勾选用于对比">
         </div>
         <img class="history-thumb" src="${item.thumb}" alt="">
         <div class="history-info">
-          <div class="history-title">${item.title}${srcTag}</div>
+          <div class="history-title">${item.title}${srcTag}${approvalBadge}</div>
           <div class="history-time">${item.template} · ${item.time}</div>
           <div class="history-item-action">
-            <button data-act="rename" title="重命名">✏️改名</button>
-            <button data-act="restore" title="恢复版本">↩️恢复</button>
-            <button data-act="duplicate" title="复制为新版本并继续编辑">📋复制</button>
-            <button data-act="fav" title="存为常用模板">⭐存模板</button>
+            <button data-act="rename" title="重命名">✏️</button>
+            <button data-act="approve" title="标记为已通过">✅</button>
+            <button data-act="pending" title="标记为待确认">⏳</button>
+            <button data-act="reject" title="打回并填写原因">❌</button>
+            <button data-act="restore" title="恢复版本">↩️</button>
+            <button data-act="duplicate" title="复制继续编辑">📋</button>
+            <button data-act="fav" title="存为常用模板">⭐</button>
             <button data-act="del" title="删除">🗑️</button>
           </div>
         </div>
@@ -1654,6 +1991,36 @@
         );
         setTimeout(() => {
           const inp = $('fav-input'); if (inp) inp.focus();
+          const c = $('modal-body').querySelector('[data-close]');
+          if (c) c.addEventListener('click', () => $('modal-overlay').style.display = 'none');
+        }, 50);
+      });
+      el.querySelector('[data-act="approve"]').addEventListener('click', e => {
+        e.stopPropagation();
+        setApprovalStatus(item, 'approved');
+        showToast('已标记：已通过，可进入生产');
+      });
+      el.querySelector('[data-act="pending"]').addEventListener('click', e => {
+        e.stopPropagation();
+        setApprovalStatus(item, 'pending', '');
+        showToast('已标记：待确认');
+      });
+      el.querySelector('[data-act="reject"]').addEventListener('click', e => {
+        e.stopPropagation();
+        showModal('打回版本',
+          `<textarea id="reject-reason-input" placeholder="请填写打回原因..." style="width:100%;min-height:70px;padding:10px;border:1px solid #e0e0e0;border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;outline:none"></textarea>
+           <div class="modal-actions">
+             <button class="btn btn-secondary" data-close>取消</button>
+             <button class="btn btn-danger" data-confirm>确认打回</button>
+           </div>`,
+          () => {
+            const reason = $('reject-reason-input').value.trim() || '未填写原因';
+            setApprovalStatus(item, 'rejected', reason);
+            showToast('已打回');
+          }
+        );
+        setTimeout(() => {
+          const inp = $('reject-reason-input'); if (inp) inp.focus();
           const c = $('modal-body').querySelector('[data-close]');
           if (c) c.addEventListener('click', () => $('modal-overlay').style.display = 'none');
         }, 50);

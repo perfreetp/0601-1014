@@ -330,6 +330,20 @@
             <div class="export-preview" id="export-preview"></div>
           </div>
 
+          <div class="task-queue-section" id="task-queue-section">
+            <div class="section-header">
+              <h3>📋 生产任务队列</h3>
+              <button class="btn btn-secondary btn-xs" id="btn-add-task">＋加入当前商品</button>
+            </div>
+            <div class="task-queue-list" id="task-queue-list"></div>
+            <div class="task-queue-actions" id="task-queue-actions" style="display:none">
+              <button class="btn btn-secondary btn-sm" id="btn-clear-queue">清空队列</button>
+              <button class="btn btn-success btn-sm" id="btn-execute-queue">
+                <span>🚀</span> 批量导出全部任务
+              </button>
+            </div>
+          </div>
+
           <div class="batch-actions">
             <button class="btn btn-primary btn-lg" id="btn-generate-all">
               <span>✨</span> 生成并导出勾选的规格
