@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "直播视觉物料生成器",
+  "version": "1.0.0",
+  "description": "为直播运营快速生成直播间视觉物料：商品识别、模板套用、画布编辑、批量生成、预览和导出",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "clipboardWrite"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "直播视觉物料生成器"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>直播视觉物料生成器</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="logo">
+        <span class="logo-icon">🎨</span>
+        <span class="logo-text">直播视觉物料生成器</span>
+      </div>
+    </header>
+
+    <nav class="panel-tabs">
+      <button class="tab-btn active" data-panel="product">
+        <span class="tab-icon">🔍</span>
+        <span class="tab-label">商品识别</span>
+      </button>
+      <button class="tab-btn" data-panel="template">
+        <span class="tab-icon">📋</span>
+        <span class="tab-label">模板</span>
+      </button>
+      <button class="tab-btn" data-panel="canvas">
+        <span class="tab-icon">🖼️</span>
+        <span class="tab-label">画布</span>
+      </button>
+      <button class="tab-btn" data-panel="batch">
+        <span class="tab-icon">📦</span>
+        <span class="tab-label">批量</span>
+      </button>
+      <button class="tab-btn" data-panel="preview">
+        <span class="tab-icon">👁️</span>
+        <span class="tab-label">预览</span>
+      </button>
+      <button class="tab-btn" data-panel="export">
+        <span class="tab-icon">💾</span>
+        <span class="tab-label">导出</span>
+      </button>
+    </nav>
+
+    <main class="panel-container">
+      <section class="panel active" id="panel-product">
+        <div class="panel-header">
+          <h2>商品识别</h2>
+          <p class="panel-desc">自动抓取当前页面商品信息</p>
+        </div>
+        <div class="panel-body">
+          <div class="action-row">
+            <button class="btn btn-primary" id="btn-scrape">
+              <span>📥</span> 抓取当前页面商品
+            </button>
+            <button class="btn btn-secondary" id="btn-manual">
+              <span>✏️</span> 手动输入
+            </button>
+          </div>
+          <div class="product-form">
+            <div class="form-group">
+              <label>商品标题</label>
+              <input type="text" id="product-title" placeholder="请输入商品标题">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>现价</label>
+                <input type="text" id="product-price" placeholder="¥99.00">
+              </div>
+              <div class="form-group">
+                <label>原价</label>
+                <input type="text" id="product-original-price" placeholder="¥199.00">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>商品图片</label>
+              <div class="image-upload-area" id="image-upload-area">
+                <div class="image-preview" id="image-preview">
+                  <span class="placeholder">📷 点击上传或粘贴图片链接</span>
+                </div>
+                <input type="text" id="product-image-url" placeholder="或粘贴图片URL" class="mt-2">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>促销标签</label>
+              <div class="tag-list" id="tag-list">
+                <span class="tag">秒杀</span>
+                <span class="tag">上新</span>
+                <span class="tag">包邮</span>
+                <span class="tag">满减</span>
+                <span class="tag">赠品</span>
+              </div>
+            </div>
+          </div>
+          <div class="product-cards" id="product-cards"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-template">
+        <div class="panel-header">
+          <h2>模板选择</h2>
+          <p class="panel-desc">选择适合的直播物料模板</p>
+        </div>
+        <div class="panel-body">
+          <div class="template-categories">
+            <button class="category-btn active" data-category="all">全部</button>
+            <button class="category-btn" data-category="seckill">⚡ 秒杀</button>
+            <button class="category-btn" data-category="new">🆕 上新</button>
+            <button class="category-btn" data-category="lottery">🎁 抽奖</button>
+            <button class="category-btn" data-category="preview">⏰ 预告</button>
+          </div>
+          <div class="template-grid" id="template-grid"></div>
+          <div class="favorite-templates">
+            <h3>⭐ 常用模板</h3>
+            <div class="template-grid small" id="favorite-templates"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-canvas">
+        <div class="panel-header">
+          <h2>画布编辑</h2>
+          <p class="panel-desc">调整尺寸、颜色、字体等属性</p>
+        </div>
+        <div class="panel-body">
+          <div class="canvas-layout">
+            <div class="canvas-toolbar">
+              <div class="tool-group">
+                <label class="tool-label">尺寸</label>
+                <select id="canvas-size">
+                  <option value="800x800">封面 800×800</option>
+                  <option value="750x1334">手机竖图 750×1334</option>
+                  <option value="1920x1080">横幅 1920×1080</option>
+                  <option value="200x200">角标 200×200</option>
+                  <option value="600x150">弹幕图 600×150</option>
+                  <option value="custom">自定义尺寸</option>
+                </select>
+                <div class="size-inputs" id="custom-size-inputs" style="display:none">
+                  <input type="number" id="canvas-width" placeholder="宽" value="800">
+                  <span>×</span>
+                  <input type="number" id="canvas-height" placeholder="高" value="800">
+                </div>
+              </div>
+
+              <div class="tool-group">
+                <label class="tool-label">背景颜色</label>
+                <div class="color-row">
+                  <input type="color" id="bg-color" value="#FF4757">
+                  <input type="text" id="bg-color-text" value="#FF4757">
+                </div>
+                <div class="brand-colors" id="brand-colors"></div>
+              </div>
+
+              <div class="tool-group">
+                <label class="tool-label">字体</label>
+                <select id="font-family">
+                  <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+                  <option value="'SimHei', sans-serif">黑体</option>
+                  <option value="'SimSun', serif">宋体</option>
+                  <option value="'KaiTi', serif">楷体</option>
+                  <option value="Arial, sans-serif">Arial</option>
+                  <option value="'PingFang SC', sans-serif">苹方</option>
+                </select>
+              </div>
+
+              <div class="tool-group">
+                <label class="tool-label">文字颜色</label>
+                <div class="color-row">
+                  <input type="color" id="text-color" value="#FFFFFF">
+                  <input type="text" id="text-color-text" value="#FFFFFF">
+                </div>
+              </div>
+
+              <div class="tool-group">
+                <label class="tool-label">边框</label>
+                <div class="border-controls">
+                  <div class="control-row">
+                    <label>宽度</label>
+                    <input type="range" id="border-width" min="0" max="20" value="4">
+                    <span id="border-width-value">4px</span>
+                  </div>
+                  <div class="color-row">
+                    <input type="color" id="border-color" value="#FFFFFF">
+                    <input type="text" id="border-color-text" value="#FFFFFF">
+                  </div>
+                  <div class="control-row">
+                    <label>圆角</label>
+                    <input type="range" id="border-radius" min="0" max="100" value="16">
+                    <span id="border-radius-value">16px</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tool-group">
+                <label class="tool-label">贴纸</label>
+                <div class="sticker-list" id="sticker-list">
+                  <span class="sticker" data-sticker="🔥">🔥</span>
+                  <span class="sticker" data-sticker="⚡">⚡</span>
+                  <span class="sticker" data-sticker="💰">💰</span>
+                  <span class="sticker" data-sticker="🎁">🎁</span>
+                  <span class="sticker" data-sticker="⭐">⭐</span>
+                  <span class="sticker" data-sticker="❤️">❤️</span>
+                  <span class="sticker" data-sticker="🎉">🎉</span>
+                  <span class="sticker" data-sticker="🏷️">🏷️</span>
+                  <span class="sticker" data-sticker="📢">📢</span>
+                  <span class="sticker" data-sticker="💎">💎</span>
+                </div>
+              </div>
+
+              <div class="tool-group">
+                <label class="tool-label">
+                  <input type="checkbox" id="show-safe-area" checked> 显示安全区
+                </label>
+                <div class="safe-area-info">
+                  <small>安全区域内内容不会被裁切</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="canvas-preview-wrapper">
+              <div class="canvas-preview" id="canvas-preview">
+                <canvas id="main-canvas" width="800" height="800"></canvas>
+                <div class="safe-area-overlay" id="safe-area-overlay"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-batch">
+        <div class="panel-header">
+          <h2>批量生成</h2>
+          <p class="panel-desc">一键生成多种规格物料</p>
+        </div>
+        <div class="panel-body">
+          <div class="batch-types">
+            <label class="batch-type-card">
+              <input type="checkbox" class="batch-checkbox" data-type="cover" checked>
+              <div class="batch-type-content">
+                <span class="batch-icon">🖼️</span>
+                <span class="batch-name">直播封面</span>
+                <span class="batch-size">800×800</span>
+              </div>
+            </label>
+            <label class="batch-type-card">
+              <input type="checkbox" class="batch-checkbox" data-type="corner" checked>
+              <div class="batch-type-content">
+                <span class="batch-icon">🔲</span>
+                <span class="batch-name">直播间角标</span>
+                <span class="batch-size">200×200</span>
+              </div>
+            </label>
+            <label class="batch-type-card">
+              <input type="checkbox" class="batch-checkbox" data-type="banner" checked>
+              <div class="batch-type-content">
+                <span class="batch-icon">📏</span>
+                <span class="batch-name">横幅海报</span>
+                <span class="batch-size">1920×1080</span>
+              </div>
+            </label>
+            <label class="batch-type-card">
+              <input type="checkbox" class="batch-checkbox" data-type="danmu" checked>
+              <div class="batch-type-content">
+                <span class="batch-icon">💬</span>
+                <span class="batch-name">弹幕贴图</span>
+                <span class="batch-size">600×150</span>
+              </div>
+            </label>
+          </div>
+          <div class="batch-preview-grid" id="batch-preview-grid"></div>
+          <div class="batch-actions">
+            <button class="btn btn-primary btn-lg" id="btn-generate-all">
+              <span>✨</span> 一键生成全部
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-preview">
+        <div class="panel-header">
+          <h2>效果预览</h2>
+          <p class="panel-desc">模拟不同设备显示效果</p>
+        </div>
+        <div class="panel-body">
+          <div class="preview-devices">
+            <button class="device-btn active" data-device="phone">
+              <span>📱</span> 手机竖屏
+            </button>
+            <button class="device-btn" data-device="phone-landscape">
+              <span>📲</span> 手机横屏
+            </button>
+            <button class="device-btn" data-device="tv">
+              <span>📺</span> 大屏电视
+            </button>
+            <button class="device-btn" data-device="pc">
+              <span>💻</span> 电脑端
+            </button>
+          </div>
+          <div class="preview-scene" id="preview-scene">
+            <div class="device-frame phone" id="device-frame">
+              <div class="device-screen">
+                <div class="live-simulation">
+                  <div class="live-video">
+                    <div class="video-placeholder">🎬 直播画面区域</div>
+                    <div class="live-overlay-elements">
+                      <img class="simulated-cover" id="simulated-cover" alt="">
+                      <img class="simulated-corner" id="simulated-corner" alt="">
+                      <img class="simulated-banner" id="simulated-banner" alt="">
+                    </div>
+                  </div>
+                  <div class="live-controls">
+                    <div class="control-item">❤️ 12.8k</div>
+                    <div class="control-item">💬 3.2k</div>
+                    <div class="control-item">👥 8.6k 在线</div>
+                  </div>
+                  <div class="danmu-area" id="danmu-area">
+                    <div class="danmu-item">这个价格太划算了！</div>
+                    <div class="danmu-item">已下单 🔥🔥🔥</div>
+                    <div class="danmu-item">主播介绍一下尺码</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-export">
+        <div class="panel-header">
+          <h2>导出与管理</h2>
+          <p class="panel-desc">复制、下载、管理历史版本</p>
+        </div>
+        <div class="panel-body">
+          <div class="export-actions">
+            <button class="btn btn-primary" id="btn-copy-image">
+              <span>📋</span> 复制图片
+            </button>
+            <button class="btn btn-primary" id="btn-download-current">
+              <span>⬇️</span> 下载当前图
+            </button>
+            <button class="btn btn-success" id="btn-download-all">
+              <span>📦</span> 下载套图
+            </button>
+          </div>
+
+          <div class="brand-color-section">
+            <h3>🎨 品牌色管理</h3>
+            <div class="brand-color-form">
+              <input type="color" id="new-brand-color" value="#FF4757">
+              <input type="text" id="new-brand-color-name" placeholder="颜色名称（如：品牌红）">
+              <button class="btn btn-secondary btn-sm" id="btn-add-brand-color">保存</button>
+            </div>
+            <div class="brand-colors-list" id="brand-colors-list"></div>
+          </div>
+
+          <div class="history-section">
+            <div class="section-header">
+              <h3>📜 历史版本</h3>
+              <button class="btn btn-secondary btn-sm" id="btn-clear-history">清空历史</button>
+            </div>
+            <div class="history-list" id="history-list"></div>
+          </div>
+
+          <div class="share-section">
+            <h3>🔗 分享给同事</h3>
+            <div class="share-form">
+              <input type="text" id="share-link" readonly placeholder="点击生成分享链接">
+              <button class="btn btn-secondary" id="btn-generate-share">生成链接</button>
+              <button class="btn btn-secondary" id="btn-copy-share">复制链接</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
